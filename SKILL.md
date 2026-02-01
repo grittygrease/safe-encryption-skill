@@ -20,46 +20,57 @@ description: |
 
 SAFE is a modern encryption CLI with post-quantum support, multi-recipient encryption, and composable authentication.
 
-## Before Using: Check Installation
+## Behavior Guidelines
 
-Before running any safe command, first check if the tool is installed:
+When this skill is loaded:
+1. Check if `safe` is installed (`which safe`). If not, install it automatically without asking.
+2. When the user asks to encrypt/decrypt, just do it. Don't ask for confirmation.
+3. If a password is needed and not provided, ask for it once, then proceed.
+4. If a key file is needed, check `~/.safe/keys/` (private) and `~/.safe/pub/` (public) first, then the current directory. If not found, offer to generate one.
+5. **Always use absolute paths** for key files and encrypted files to avoid working directory issues.
+6. When generating personal keys, store them in `~/.safe/keys/` by default (create directories if needed), then move `.pub` files to `~/.safe/pub/`.
+
+## Installation
+
+Check and install in one step:
 
 ```bash
-which safe && safe --help
+which safe || (git clone https://github.com/grittygrease/safe.git /tmp/safe-build && cd /tmp/safe-build/go && go build -o safe ./cmd/safe && sudo mv safe /usr/local/bin/ && rm -rf /tmp/safe-build)
 ```
 
-If `safe` is not found, install it:
-
+Alternative if Go unavailable (Rust):
 ```bash
-# Option 1: Go (recommended, fastest)
-git clone https://github.com/grittygrease/safe.git /tmp/safe-build
-cd /tmp/safe-build/go && go build -o safe ./cmd/safe
-sudo mv safe /usr/local/bin/
-rm -rf /tmp/safe-build
-
-# Option 2: Rust
-git clone https://github.com/grittygrease/safe.git /tmp/safe-build
-cd /tmp/safe-build/rust && cargo build --release
-sudo mv target/release/safe /usr/local/bin/
-rm -rf /tmp/safe-build
-
-# Option 3: If Go/Rust unavailable, use Python
-pip install cryptography argon2-cffi --break-system-packages
-git clone https://github.com/grittygrease/safe.git ~/.local/share/safe
-# Then use: python -m safe.cli instead of safe
+which safe || (git clone https://github.com/grittygrease/safe.git /tmp/safe-build && cd /tmp/safe-build/rust && cargo build --release && sudo mv target/release/safe /usr/local/bin/ && rm -rf /tmp/safe-build)
 ```
-
-Verify installation: `safe --help`
 
 ## Quick Reference
+
+### Key Storage Convention
+
+Personal keys are stored in `~/.safe/` (similar to `~/.ssh/`), with public and private keys separated:
+
+```bash
+mkdir -p ~/.safe/keys ~/.safe/pub && chmod 700 ~/.safe ~/.safe/keys
+safe keygen x25519 -o ~/.safe/keys/id   # Creates id.x25519.pub and id.x25519.key
+mv ~/.safe/keys/id.x25519.pub ~/.safe/pub/
+chmod 600 ~/.safe/keys/*                 # Protect private keys
+```
+
+Directory structure:
+- `~/.safe/keys/` - Private keys (600 permissions, never share)
+- `~/.safe/pub/` - Public keys (safe to share)
+
+Project-specific keys can be stored in `.safe/keys/` and `.safe/pub/` within the project directory.
 
 ### Generate Keys
 
 | Key Type | Command | Use Case |
 |----------|---------|----------|
-| x25519 | `safe keygen x25519 -o mykey` | Fast, default, widely supported |
-| p-256 | `safe keygen p-256 -o mykey` | FIPS compliance |
-| ml-kem-768 | `safe keygen ml-kem-768 -o mykey` | Post-quantum security |
+| x25519 | `safe keygen x25519 -o ~/.safe/keys/id` | Fast, default, widely supported |
+| p-256 | `safe keygen p-256 -o ~/.safe/keys/id` | FIPS compliance |
+| ml-kem-768 | `safe keygen ml-kem-768 -o ~/.safe/keys/id` | Post-quantum security |
+
+After generating, move public key: `mv ~/.safe/keys/*.pub ~/.safe/pub/`
 
 Output: `<name>.<type>.pub` (share this) and `<name>.<type>.key` (keep secret)
 
@@ -349,3 +360,24 @@ Run installation steps above. Verify with `which safe`.
 - Composable paths (`->`) provide defense-in-depth
 - ML-KEM-768 protects against future quantum computers
 - Argon2id password hashing is memory-hard and GPU-resistant (64 MiB memory, 2 iterations)
+
+### Password Security
+
+**Warning:** Passwords passed via `-p` are visible in shell history and process listings.
+
+Mitigations:
+```bash
+# 1. Prefix with space to skip history (bash/zsh with HISTCONTROL=ignorespace)
+ safe encrypt -i file.txt -o file.safe -p "secret"
+
+# 2. Use a key file instead of password
+safe encrypt -i file.txt -o file.safe -r ~/.safe/pub/id.x25519.pub
+
+# 3. Read password from file (careful with permissions)
+safe encrypt -i file.txt -o file.safe -p "$(cat ~/.safe/.password)"
+
+# 4. Clear history after use
+history -d $(history 1 | awk '{print $1}')
+```
+
+For high-security use cases, prefer key-based encryption over passwords.
