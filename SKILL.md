@@ -43,6 +43,34 @@ Alternative if Go unavailable (Rust):
 which safe || (git clone https://github.com/grittygrease/safe.git /tmp/safe-build && cd /tmp/safe-build/rust && cargo build --release && sudo mv target/release/safe /usr/local/bin/ && rm -rf /tmp/safe-build)
 ```
 
+Verify installation:
+```bash
+safe --help
+```
+
+### Installation Debugging
+
+**"safe: command not found"** after install:
+- Check if binary exists: `ls -la /usr/local/bin/safe`
+- If sudo failed, install to user dir: `mv safe ~/.local/bin/ && export PATH="$HOME/.local/bin:$PATH"`
+- Refresh shell: `hash -r` or start new terminal
+
+**Build fails with "go: command not found"**:
+- Install Go: `brew install go` (macOS) or `apt install golang` (Linux)
+- Or use the Rust build instead
+
+**Build fails with "cargo: command not found"**:
+- Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- Or use the Go build instead
+
+**Permission denied on /usr/local/bin**:
+- Use sudo: `sudo mv safe /usr/local/bin/`
+- Or install to user dir: `mkdir -p ~/.local/bin && mv safe ~/.local/bin/`
+
+**Clone fails**:
+- Check network: `ping github.com`
+- Try HTTPS explicitly: `git clone https://github.com/grittygrease/safe.git`
+
 ## Quick Reference
 
 ### Key Storage Convention
@@ -381,3 +409,160 @@ history -d $(history 1 | awk '{print $1}')
 ```
 
 For high-security use cases, prefer key-based encryption over passwords.
+
+## Agent-to-Agent Encrypted Communication
+
+Agents can exchange encrypted messages across any text-based channel: email, forums, GitHub issues, Slack, shared files, etc.
+
+### First-Run Setup
+
+On first use, check for existing keys and generate if missing:
+
+```bash
+# Check if agent identity exists
+if [ ! -f ~/.safe/pub/id.x25519.pub ]; then
+    mkdir -p ~/.safe/keys ~/.safe/pub
+    chmod 700 ~/.safe ~/.safe/keys
+    safe keygen x25519 -o ~/.safe/keys/id
+    mv ~/.safe/keys/id.x25519.pub ~/.safe/pub/
+    chmod 600 ~/.safe/keys/*
+    echo "Generated new agent identity:"
+    safe keyinfo ~/.safe/pub/id.x25519.pub
+fi
+```
+
+### Convention: Reply-To Keys
+
+To enable replies, prepend your public key(s) to the message before encrypting:
+
+```
+-----BEGIN X25519 PUBLIC KEY-----
+fBhEEEB+CepxNQIfPtxnIhWbDUyo+Z/W17cYKlCbsDg=
+-----END X25519 PUBLIC KEY-----
+
+Here is the secret data you requested...
+```
+
+When an agent decrypts a message and finds PEM public key blocks at the top, it knows how to send an encrypted reply.
+
+**Multiple reply-to keys:** If the sender wants multiple agents/identities to decrypt the reply:
+
+```
+-----BEGIN X25519 PUBLIC KEY-----
+fBhEEEB+CepxNQIfPtxnIhWbDUyo+Z/W17cYKlCbsDg=
+-----END X25519 PUBLIC KEY-----
+-----BEGIN ML-KEM-768 PUBLIC KEY-----
+<base64...>
+-----END ML-KEM-768 PUBLIC KEY-----
+
+Message body here...
+```
+
+The receiving agent extracts all key blocks and encrypts the reply to all of them (creating multiple unlock blocks so any key can decrypt).
+
+### Workflow: Send a Message
+
+```bash
+# 1. Create message with your public key as reply address
+cat ~/.safe/pub/id.x25519.pub > message.txt
+echo "" >> message.txt
+echo "Here are the API credentials you requested..." >> message.txt
+
+# 2. Encrypt to recipient's public key
+safe encrypt -i message.txt -o message.safe -r recipient.x25519.pub
+
+# 3. Share message.safe via any channel (email, forum, git, shared folder, etc.)
+```
+
+### Checking if a Message is For You
+
+Before attempting to decrypt, check if your key ID matches any unlock block:
+
+```bash
+# Get Key IDs from the encrypted file
+safe info -i message.safe
+# Output includes:
+#   UNLOCK Blocks: 2
+#   [0] hpke(kem=x25519)
+#       Key ID: 1SB5W2LJ8/DNu8rn+vaGHA==
+#   [1] hpke(kem=ml-kem-768)
+#       Key ID: abc123...
+
+# Get your key's ID
+safe keyinfo ~/.safe/pub/id.x25519.pub
+# Output includes:
+#   Key ID: 1SB5W2LJ8/DNu8rn+vaGHA==
+
+# If your Key ID matches one of the unlock blocks, you can decrypt
+```
+
+### Workflow: Receive and Reply
+
+```bash
+# 1. Decrypt the message
+safe decrypt -i message.safe -o message.txt -k ~/.safe/keys/id.x25519.key
+
+# 2. Extract all reply-to keys (all PEM blocks at top of message)
+# Split into separate .pub files:
+csplit -z -f sender- -b '%02d.pub' message.txt '/-----END.*KEY-----/+1' '{*}' 2>/dev/null
+
+# Or extract all keys to one file (for -r flag per key):
+grep -A1 'BEGIN.*PUBLIC KEY' message.txt | grep -v '^--$' > sender-keys.txt
+
+# 3. Create and encrypt reply to all sender keys
+cat ~/.safe/pub/id.x25519.pub > reply.txt
+echo "" >> reply.txt
+echo "Thanks, here's my response..." >> reply.txt
+
+# Encrypt to all extracted keys (each -r creates an unlock block)
+safe encrypt -i reply.txt -o reply.safe -r sender-00.pub -r sender-01.pub
+```
+
+### Publishing Your Public Key
+
+Share your public key so others can send you encrypted messages:
+
+| Location | Use Case |
+|----------|----------|
+| `AGENTS.md` in repo | Project-specific agent identity |
+| GitHub profile / gist | Personal agent key |
+| Forum signature | Community communication |
+| Shared team folder | Internal team use |
+| Email signature | Email-based exchange |
+
+Example `AGENTS.md`:
+
+```markdown
+## Agent Keys
+
+### Deploy Agent
+\`\`\`
+-----BEGIN X25519 PUBLIC KEY-----
+fBhEEEB+CepxNQIfPtxnIhWbDUyo+Z/W17cYKlCbsDg=
+-----END X25519 PUBLIC KEY-----
+\`\`\`
+
+To send encrypted data to this agent, save the key block above to a file and run:
+\`\`\`bash
+safe encrypt -i data.txt -o data.safe -r deploy-agent.pub
+\`\`\`
+```
+
+### Handling Multiple Identities
+
+Agents may have different keys for different contexts:
+
+```bash
+~/.safe/pub/id.x25519.pub           # Default personal identity
+~/.safe/pub/work.x25519.pub         # Work identity
+./project/.safe/pub/deploy.pub      # Project-specific identity
+```
+
+When sending, choose the appropriate reply-to key for the context. When receiving, check all your identities against the unlock blocks.
+
+### Error Handling
+
+If decryption fails even though key ID matched:
+1. The file may be corrupted - check with `safe info -i file.safe`
+2. For composable paths, ALL required credentials must be provided
+3. Report the error clearly; don't silently fail
