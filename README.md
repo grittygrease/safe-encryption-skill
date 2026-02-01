@@ -1,0 +1,70 @@
+# safe-encryption
+
+A skill for encrypting and decrypting files using [SAFE](https://github.com/grittygrease/safe).
+
+## What This Skill Does
+
+When installed, your AI coding assistant will know how to:
+
+- Encrypt/decrypt files with passwords or public keys
+- Generate encryption keypairs (x25519, p-256, ml-kem-768)
+- Set up two-factor encryption (password + key)
+- Configure multi-party encryption (separation of duties)
+- Use post-quantum encryption for future-proof security
+- Edit encrypted files without full re-encryption
+- Manage recipients (add/remove/rotate keys)
+
+## Installation
+
+### Global (all projects)
+
+```bash
+mkdir -p ~/.claude/skills/safe-encryption
+curl -o ~/.claude/skills/safe-encryption/SKILL.md \
+  https://raw.githubusercontent.com/grittygrease/safe-encryption-skill/main/SKILL.md
+```
+
+Or clone the repo:
+
+```bash
+git clone https://github.com/grittygrease/safe-encryption-skill.git /tmp/skill
+cp -r /tmp/skill ~/.claude/skills/safe-encryption
+rm -rf /tmp/skill
+```
+
+### Project-specific
+
+```bash
+mkdir -p .claude/skills/safe-encryption
+curl -o .claude/skills/safe-encryption/SKILL.md \
+  https://raw.githubusercontent.com/grittygrease/safe-encryption-skill/main/SKILL.md
+```
+
+## Also Required: SAFE CLI
+
+This skill teaches your assistant how to use the `safe` command. You also need the tool itself:
+
+```bash
+git clone https://github.com/grittygrease/safe.git /tmp/safe
+cd /tmp/safe/go && go build -o safe ./cmd/safe
+sudo mv safe /usr/local/bin/
+rm -rf /tmp/safe
+```
+
+Verify: `safe --help`
+
+See [grittygrease/safe](https://github.com/grittygrease/safe) for Rust, TypeScript, and Python builds.
+
+## Usage
+
+Once installed, just ask naturally:
+
+- "Encrypt this file with a password"
+- "Generate an encryption keypair"
+- "Set up two-factor encryption for secrets.txt"
+- "Encrypt this for Alice and Bob"
+- "Decrypt credentials.safe"
+
+## License
+
+Apache-2.0
