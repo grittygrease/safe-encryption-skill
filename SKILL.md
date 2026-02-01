@@ -29,6 +29,7 @@ When this skill is loaded:
 4. If a key file is needed, check `~/.safe/keys/` (private) and `~/.safe/pub/` (public) first, then the current directory. If not found, offer to generate one.
 5. **Always use absolute paths** for key files and encrypted files to avoid working directory issues.
 6. When generating personal keys, store them in `~/.safe/keys/` by default (create directories if needed), then move `.pub` files to `~/.safe/pub/`.
+7. **Always pipe instead of writing temp files.** When decrypting inline/embedded content (base64, pasted data), pipe directly: `echo "..." | base64 -d | safe decrypt -i - -o - -k key`. Never write intermediate `.safe` files to `/tmp` or elsewhere.
 
 ## Installation
 
@@ -135,7 +136,15 @@ safe decrypt -i file.safe -o file.txt -p "secret" -k alice.key
 
 Use `-i -` for stdin, `-o -` for stdout. All operations are binary-safe (no encoding issues).
 
+**Default behavior:** Always prefer piping over writing intermediate files to disk. This avoids leaving decrypted content on disk and is cleaner.
+
 ```bash
+# Decrypt base64-encoded content (PREFERRED - no temp file)
+echo "LS0tLS1CRUdJTi..." | base64 -d | safe decrypt -i - -o - -k ~/.safe/keys/id.x25519.key
+
+# AVOID: Writing intermediate files
+# echo "LS0tLS1CRUdJTi..." | base64 -d > /tmp/file.safe && safe decrypt -i /tmp/file.safe ...
+
 # Basic stdin/stdout
 echo "secret" | safe encrypt -i - -o - -p "pw" > encrypted.safe
 cat encrypted.safe | safe decrypt -i - -o - -p "pw"
