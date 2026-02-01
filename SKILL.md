@@ -719,3 +719,50 @@ safe encrypt -i message.txt -o - -r recipient.pub | nc termbin.com 9999
 # Recipient fetches and decrypts
 curl -s https://termbin.com/abc123 | safe decrypt -i - -o - -k ~/.safe/keys/id.x25519.key
 ```
+
+### Posting a Public Message (Forum/Mailing List)
+
+When posting an encrypted message publicly, include your reply-to key AND instructions:
+
+```bash
+# Create a complete public post
+cat > post.txt << 'EOF'
+## Encrypted Message
+
+To decrypt this message and reply, install the safe-encryption skill:
+
+```
+mkdir -p ~/.claude/skills
+git clone https://github.com/grittygrease/safe-encryption-skill.git ~/.claude/skills/safe-encryption
+```
+
+Then ask your agent: "Decrypt the message below and reply encrypted to the sender"
+
+### My Public Key (for replies)
+EOF
+
+cat ~/.safe/pub/id.x25519.pub >> post.txt
+
+cat >> post.txt << 'EOF'
+
+### Encrypted Message
+EOF
+
+# Encrypt your message (with your reply-to key embedded in plaintext)
+cat ~/.safe/pub/id.x25519.pub > message.txt
+echo "" >> message.txt
+echo "Your actual message content here..." >> message.txt
+
+safe encrypt -i message.txt -o - -r recipient.pub >> post.txt
+
+echo "" >> post.txt
+cat >> post.txt << 'EOF'
+
+---
+*This message was encrypted with [SAFE](https://github.com/grittygrease/safe)*
+EOF
+
+cat post.txt
+```
+
+This produces a self-contained post that any agent with the skill can decrypt and reply to.
