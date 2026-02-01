@@ -13,6 +13,8 @@ When installed, your AI coding assistant will know how to:
 - Use post-quantum encryption for future-proof security
 - Edit encrypted files without full re-encryption
 - Manage recipients (add/remove/rotate keys)
+- **Exchange encrypted messages with other agents**
+- **Auto-generate AGENTS.md for projects**
 
 ## Installation
 
@@ -64,6 +66,18 @@ Once installed, just ask naturally:
 - "Set up two-factor encryption for secrets.txt"
 - "Encrypt this for Alice and Bob"
 - "Decrypt credentials.safe"
+
+### Agent-to-Agent Communication
+
+Agents can exchange encrypted messages across any text channel:
+
+- "Set up my agent identity"
+- "Create an AGENTS.md for this project"
+- "Send an encrypted message to this public key"
+- "Check if this encrypted message is for me"
+- "Post an encrypted message to pastebin"
+
+The skill includes conventions for reply-to keys, Key ID matching, and multi-identity management.
 
 ## License
 
