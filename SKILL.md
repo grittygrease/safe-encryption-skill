@@ -133,17 +133,30 @@ safe decrypt -i file.safe -o file.txt -p "secret" -k alice.key
 
 ### Piping (stdin/stdout)
 
-Use `-i -` for stdin, `-o -` for stdout:
+Use `-i -` for stdin, `-o -` for stdout. All operations are binary-safe (no encoding issues).
 
 ```bash
+# Basic stdin/stdout
 echo "secret" | safe encrypt -i - -o - -p "pw" > encrypted.safe
 cat encrypted.safe | safe decrypt -i - -o - -p "pw"
+
+# Chain operations (re-encrypt with different key)
+safe decrypt -i a.safe -o - -p "pw1" | safe encrypt -i - -o b.safe -p "pw2"
 
 # Encrypt with compression
 tar cz src/ | safe encrypt -i - -o backup.safe -r alice.pub
 
+# Decrypt and decompress
+safe decrypt -i backup.safe -o - -k team.key | tar xz
+
 # Decrypt remote file
 curl -s https://example.com/data.safe | safe decrypt -i - -o - -k my.key
+
+# Pipe through compression then encrypt
+safe encrypt -i - -o - -p "pw" < large.bin | gzip > encrypted.safe.gz
+
+# Decrypt gzipped safe file
+gunzip -c encrypted.safe.gz | safe decrypt -i - -o - -p "pw" > large.bin
 ```
 
 ## Common Use Cases
@@ -280,7 +293,7 @@ Arrow `->` within one `-r` = AND (all required)
 
 ## Editing Encrypted Files
 
-SAFE supports random-access editing without full re-encryption.
+SAFE supports random-access editing without full re-encryption. Only modified chunks are re-encrypted - unchanged chunks are copied byte-for-byte.
 
 ### Data Input Options
 
@@ -291,42 +304,90 @@ SAFE supports random-access editing without full re-encryption.
 
 ### Read Bytes at Offset
 
+Read a portion of an encrypted file without decrypting the whole thing:
+
 ```bash
+# Read first 100 bytes
 safe read -i file.safe -o - -p "pw" --offset 0 --length 100
+
+# Read bytes 500-600 to a file
 safe read -i file.safe -o excerpt.txt -k key.key --offset 500 --length 100
+
+# Shorthand with -n for offset
+safe read -i file.safe -o - -p "pw" -n 1024 --length 256
 ```
 
-### Write Bytes at Offset
+### Write Bytes at Offset (In-Place Edit)
+
+Modify bytes at a specific position. Input and output can be the same file:
 
 ```bash
+# Overwrite bytes starting at offset 10
 safe write -i file.safe -o file.safe -p "pw" --offset 10 --data "new content"
+
+# Replace header from a file
 safe write -i config.safe -o config.safe -p "pw" --offset 0 --data-file header.bin
+
+# Write to new file (non-destructive)
+safe write -i original.safe -o modified.safe -p "pw" --offset 0 --data "UPDATED"
 ```
 
 ### Append Data
 
+Add data to the end of an encrypted file:
+
 ```bash
-safe append -i log.safe -o log.safe -p "pw" --data "$(date): Event\n"
-safe append -i data.safe -o data.safe -k key.key --data-file records.csv
+# Append log entry
+safe append -i log.safe -o log.safe -p "pw" --data "$(date): Event occurred\n"
+
+# Append from file
+safe append -i data.safe -o data.safe -k key.key --data-file new-records.csv
+
+# Append binary data
+safe append -i archive.safe -o archive.safe -p "pw" --data-file chunk.bin
 ```
 
-## Managing Recipients
-
-Modify who can decrypt without re-encrypting the data:
+### In-Place Editing Workflow
 
 ```bash
-# View current recipients
+# 1. Check current content
+safe read -i config.safe -o - -p "pw" --offset 0 --length 50
+
+# 2. Make targeted edit
+safe write -i config.safe -o config.safe -p "pw" --offset 25 --data "new_value"
+
+# 3. Verify the change
+safe read -i config.safe -o - -p "pw" --offset 0 --length 50
+```
+
+## Managing Recipients (UNLOCK Blocks)
+
+Modify who can decrypt without re-encrypting the data. These operations only change the UNLOCK blocks - the encrypted DATA remains identical.
+
+```bash
+# View current recipients and their indexes
 safe info -i file.safe
+# Shows: [0] pwd(argon2id)
+#        [1] hpke(kem=x25519, id=ABC123...)
 
-# Add new recipient
+# Add new recipient (in-place by default)
 safe unlock-add -i file.safe -p "current-pw" --recipient alice.pub
+safe unlock-add -i file.safe -k admin.key --recipient "pwd:backup-pass"
 
-# Remove recipient (by index)
+# Add composable recipient (password + key required)
+safe unlock-add -i file.safe -p "pw" --recipient "pwd:secret -> bob.pub"
+
+# Remove recipient by index (in-place)
 safe unlock-remove -i file.safe -k admin.key --index 0
 
-# Replace recipient (rotate key)
-safe unlock-replace -i file.safe -p "pw" --index 0 --recipient new.pub
+# Replace recipient at index (in-place)
+safe unlock-replace -i file.safe -p "old-pw" --index 0 --recipient "pwd:new-pw"
+
+# Write to new file instead of in-place
+safe unlock-add -i file.safe -o new-file.safe -p "pw" --recipient alice.pub
 ```
+
+**Note:** You cannot remove the last UNLOCK block - the file would become undecryptable.
 
 ## Algorithm Options
 
@@ -566,3 +627,95 @@ If decryption fails even though key ID matched:
 1. The file may be corrupted - check with `safe info -i file.safe`
 2. For composable paths, ALL required credentials must be provided
 3. Report the error clearly; don't silently fail
+
+### Checking All Identities
+
+When you have multiple keys, check if any match:
+
+```bash
+# List all your identities
+for pub in ~/.safe/pub/*.pub; do
+  echo "$(basename $pub): $(safe keyinfo $pub | grep 'Key ID' | awk '{print $3}')"
+done
+
+# Check against message
+safe info -i message.safe | grep "Key ID"
+
+# Try each matching key until one works
+for key in ~/.safe/keys/*.key; do
+  if safe decrypt -i message.safe -o /dev/null -k "$key" 2>/dev/null; then
+    echo "Decrypts with: $key"
+    safe decrypt -i message.safe -o - -k "$key"
+    break
+  fi
+done
+```
+
+### Auto-Generate AGENTS.md
+
+When setting up a project for agent communication, create an AGENTS.md:
+
+```bash
+# Generate AGENTS.md for current project
+cat > AGENTS.md << 'EOF'
+# Agent Keys
+
+This project supports encrypted agent-to-agent communication using [SAFE](https://github.com/grittygrease/safe).
+
+## Available Agents
+
+### Primary Agent
+EOF
+
+# Add the public key
+echo '```' >> AGENTS.md
+cat ~/.safe/pub/id.x25519.pub >> AGENTS.md
+echo '```' >> AGENTS.md
+
+cat >> AGENTS.md << 'EOF'
+
+## How to Send Encrypted Messages
+
+1. Save the public key block above to a file (e.g., `agent.pub`)
+2. Create your message with your reply-to key:
+   ```bash
+   cat ~/.safe/pub/id.x25519.pub > message.txt
+   echo "" >> message.txt
+   echo "Your message here..." >> message.txt
+   ```
+3. Encrypt and send:
+   ```bash
+   safe encrypt -i message.txt -o message.safe -r agent.pub
+   ```
+4. Share `message.safe` via any channel (email, issue, PR, pastebin, etc.)
+
+## Verifying Messages
+
+Check if a message is for you:
+```bash
+# Get your key ID
+safe keyinfo ~/.safe/pub/id.x25519.pub | grep "Key ID"
+
+# Check message recipients
+safe info -i message.safe | grep "Key ID"
+
+# If IDs match, decrypt
+safe decrypt -i message.safe -o message.txt -k ~/.safe/keys/id.x25519.key
+```
+EOF
+
+echo "Created AGENTS.md with your public key"
+```
+
+### Sharing via Pastebin
+
+For quick, ephemeral encrypted message sharing:
+
+```bash
+# Encrypt and post to termbin
+safe encrypt -i message.txt -o - -r recipient.pub | nc termbin.com 9999
+# Returns URL like: https://termbin.com/abc123
+
+# Recipient fetches and decrypts
+curl -s https://termbin.com/abc123 | safe decrypt -i - -o - -k ~/.safe/keys/id.x25519.key
+```
