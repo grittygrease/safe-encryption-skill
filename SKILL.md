@@ -72,6 +72,148 @@ safe --help
 - Check network: `ping github.com`
 - Try HTTPS explicitly: `git clone https://github.com/grittygrease/safe.git`
 
+### Browser-Based Alternative
+
+If CLI installation fails or isn't possible (restricted environment, no build tools, etc.), you can access SAFE programmatically through the web interface at [https://grittygrease.github.io/safe](https://grittygrease.github.io/safe).
+
+The web interface supports all core SAFE operations:
+- **Key Generation**: Generate X25519, P-256, or ML-KEM-768 keypairs with automatic key storage
+- **Encryption**: Encrypt data with passwords, public keys, or composable paths
+- **Decryption**: Decrypt SAFE messages with passwords or private keys
+- **Unlock Management**: Add/remove recipients from existing messages without re-encrypting payload
+- **Re-encryption Demo**: Visualize dirty chunk tracking (only modified chunks re-encrypted)
+- **Testing**: Run encryption/decryption and random access tests
+
+**Workflow:**
+
+The web interface provides a complete encrypt/decrypt workflow:
+
+1. **Generate Keys** (Section 01): Select KEM type (X25519/P-256/ML-KEM-768), click "Generate"
+2. **Encrypt** (Section 02): Enter plaintext, configure recipient path (public key or password steps), click "Encrypt"
+3. **Decrypt** (Section 03): Encrypted message auto-populates, credentials auto-added from saved keys, click "Decrypt"
+
+Keys are automatically saved in browser storage and can be reused across the interface.
+
+**Browser automation approach:**
+
+Use browser automation (Selenium, Playwright, Puppeteer) to programmatically interact with the page. The interface uses ARIA landmarks and accessible element references:
+
+```python
+# Example with Playwright (Python)
+from playwright.sync_api import sync_playwright
+
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    page = browser.new_page()
+    page.goto('https://grittygrease.github.io/safe')
+    
+    # Generate X25519 keypair
+    page.get_by_role("combobox", name="Select key encapsulation mechanism type").select_option("X25519")
+    page.get_by_role("button", name="Generate new keypair").click()
+    
+    # Get generated keys (from textboxes after generation)
+    page.wait_for_selector('[aria-label*="public key in base64"]')
+    pub_key = page.locator('[aria-label*="Generated public key"]').input_value()
+    priv_key = page.locator('[aria-label*="Generated private key"]').input_value()
+    
+    # Encrypt with password
+    plaintext_box = page.get_by_role("textbox", name="Enter plaintext message to encrypt")
+    plaintext_box.fill('secret message')
+    
+    # Change step type to Password
+    page.get_by_role("combobox", name="Select encryption step type").select_option("Password")
+    page.get_by_role("textbox", name="Enter password").fill("mypassword")
+    page.get_by_role("button", name="Add encryption step").click()
+    
+    # Encrypt
+    page.get_by_role("button", name="Encrypt plaintext").click()
+    page.wait_for_selector('[aria-label*="Encrypted SAFE message output"]')
+    encrypted = page.locator('[aria-label*="Encrypted SAFE message output"]').input_value()
+    
+    # Decrypt (message auto-populates in decrypt section)
+    page.get_by_role("button", name="Decrypt SAFE message").click()
+    page.wait_for_selector('[aria-label*="Decrypted plaintext message"]')
+    decrypted = page.locator('[aria-label*="Decrypted plaintext message"]').input_value()
+    
+    print(f"Decrypted: {decrypted}")  # "secret message"
+    browser.close()
+```
+
+```javascript
+// Example with Puppeteer (Node.js)
+const puppeteer = require('puppeteer');
+
+(async () => {
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
+  await page.goto('https://grittygrease.github.io/safe');
+  
+  // Generate X25519 key
+  await page.select('select[aria-label*="key encapsulation"]', 'x25519');
+  await page.click('button[aria-label*="Generate new keypair"]');
+  
+  // Wait for key generation
+  await page.waitForSelector('textbox[aria-label*="Generated public key"]');
+  
+  // Encrypt with the generated key (automatically added to recipient path)
+  const plaintext = await page.$('textarea[aria-label*="Enter plaintext message"]');
+  await plaintext.type('secret message');
+  
+  await page.click('button[aria-label*="Encrypt plaintext"]');
+  await page.waitForSelector('textarea[aria-label*="Encrypted SAFE message output"]');
+  
+  // Get encrypted output
+  const encrypted = await page.$input('textarea[aria-label*="Encrypted SAFE"]');
+  
+  // Decrypt (credentials auto-added from saved keys)
+  await page.click('button[aria-label*="Decrypt SAFE message"]');
+  await page.waitForSelector('textarea[aria-label*="Decrypted plaintext"]');
+  
+  const decrypted = await page.$input('textarea[aria-label*="Decrypted plaintext"]');
+  console.log('Decrypted:', decrypted);
+  
+  await browser.close();
+})();
+```
+
+**Key Interface Elements:**
+
+The page uses semantic ARIA roles for automation:
+- Sections: `role="region"` with labels like "01 / Key Generation"
+- Buttons: `role="button"` with descriptive labels
+- Inputs: `role="textbox"` / `role="combobox"` with accessible names
+- Log output: `role="log"` in section "07 / Log"
+
+**Saved Keys Feature:**
+
+Generated keys are automatically saved in browser storage. The "Saved Keys" section shows:
+- Key type and ID hints (e.g., "x25519 · dfb44fdT · Vc/09H6C")
+- Quick action buttons: Use, Enc (encrypt), Dec (decrypt), Pub, Priv, Del
+
+Click "Enc" on a saved key to auto-populate the encryption recipient path, or "Dec" to auto-populate decryption credentials.
+
+**Limitations:**
+- Requires browser automation framework (Playwright, Puppeteer, Selenium)
+- Slower than native CLI (browser startup overhead ~2-3 seconds)
+- Not suitable for batch operations or server deployments
+- Dependent on web page availability and GitHub Pages uptime
+- Keys stored in browser localStorage (not persistent across browsers/devices)
+
+**When to use:**
+- Prototyping on restricted systems without build tools or Go/Rust compilers
+- One-off encryption/decryption tasks in environments where CLI can't be installed
+- Testing SAFE format without installing dependencies
+- Educational/demonstration purposes or exploring SAFE features interactively
+- Quick verification of encryption format or testing composable paths
+
+**When NOT to use:**
+- Production systems (use native CLI)
+- Automated pipelines or CI/CD (install CLI instead)
+- High-volume operations (CLI is 10-100x faster)
+- Air-gapped or offline environments
+
+For production use, always prefer the native CLI installation.
+
 ## Quick Reference
 
 ### Key Storage Convention
