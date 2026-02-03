@@ -1,6 +1,10 @@
 # safe-encryption
 
+[![skills.sh](https://img.shields.io/badge/skills.sh-install-blue)](https://skills.sh/grittygrease/safe-encryption-skill)
+
 A skill for encrypting and decrypting files using [SAFE](https://github.com/grittygrease/safe).
+
+> **Modern encryption alternative to GPG/PGP** with post-quantum support, composable authentication paths, and random-access editing. Includes agent-to-agent encrypted communication capabilities.
 
 ## What This Skill Does
 
@@ -18,7 +22,17 @@ When installed, your AI coding assistant will know how to:
 
 ## Installation
 
-### Global (all projects)
+### Using the Skills CLI (recommended)
+
+```bash
+npx skills add grittygrease/safe-encryption-skill
+```
+
+This works with Cursor, Claude Desktop, Windsurf, and other AI coding assistants that support the [skills ecosystem](https://skills.sh).
+
+### Manual Installation
+
+#### Global (all projects)
 
 ```bash
 mkdir -p ~/.claude/skills/safe-encryption
@@ -34,7 +48,7 @@ cp -r /tmp/skill ~/.claude/skills/safe-encryption
 rm -rf /tmp/skill
 ```
 
-### Project-specific
+#### Project-specific
 
 ```bash
 mkdir -p .claude/skills/safe-encryption
