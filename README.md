@@ -56,9 +56,9 @@ curl -o .claude/skills/safe-encryption/SKILL.md \
   https://raw.githubusercontent.com/grittygrease/safe-encryption-skill/main/SKILL.md
 ```
 
-## Also Required: SAFE CLI
+## Also Required: SAFE CLI or Browser
 
-This skill teaches your assistant how to use the `safe` command. You also need the tool itself:
+This skill teaches your assistant how to use the `safe` command. If you can install the CLI:
 
 ```bash
 git clone https://github.com/grittygrease/safe.git /tmp/safe
@@ -70,6 +70,8 @@ rm -rf /tmp/safe
 Verify: `safe --help`
 
 See [grittygrease/safe](https://github.com/grittygrease/safe) for Rust, TypeScript, and Python builds.
+
+**No CLI? No problem.** If you can't install the CLI (restricted environment, no build tools, sandboxed IDE), the skill will automatically fall back to the web interface at [thesafe.dev](https://thesafe.dev). All operations work in the browser — no installation required.
 
 ## Usage
 

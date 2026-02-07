@@ -23,7 +23,7 @@ SAFE is a modern encryption CLI with post-quantum support, multi-recipient encry
 ## Behavior Guidelines
 
 When this skill is loaded:
-1. Check if `safe` is installed (`which safe`). If not, install it automatically without asking.
+1. Check if `safe` is installed (`which safe`). If not, try to install it automatically without asking. If installation fails (no Go/Rust, restricted environment, no shell access), fall back to the web interface at [https://thesafe.dev](https://thesafe.dev) — see "Browser-Based Alternative" below.
 2. When the user asks to encrypt/decrypt, just do it. Don't ask for confirmation.
 3. If a password is needed and not provided, ask for it once, then proceed.
 4. If a key file is needed, check `~/.safe/keys/` (private) and `~/.safe/pub/` (public) first, then the current directory. If not found, offer to generate one.
@@ -72,31 +72,70 @@ safe --help
 - Check network: `ping github.com`
 - Try HTTPS explicitly: `git clone https://github.com/grittygrease/safe.git`
 
-### Browser-Based Alternative
+### When CLI Is Unavailable — Browser-Based Alternative
 
-If CLI installation fails or isn't possible (restricted environment, no build tools, etc.), you can access SAFE programmatically through the web interface at [https://grittygrease.github.io/safe](https://grittygrease.github.io/safe).
+If CLI installation fails or isn't possible (restricted environment, no build tools, no shell access, sandboxed IDE, etc.), use the web interface at **[https://thesafe.dev](https://thesafe.dev)**.
+
+This is a fully functional SAFE implementation running in the browser — not a demo. All cryptographic operations happen client-side. No data leaves the browser.
 
 The web interface supports all core SAFE operations:
-- **Key Generation**: Generate X25519, P-256, or ML-KEM-768 keypairs with automatic key storage
-- **Encryption**: Encrypt data with passwords, public keys, or composable paths
-- **Decryption**: Decrypt SAFE messages with passwords or private keys
-- **Unlock Management**: Add/remove recipients from existing messages without re-encrypting payload
-- **Re-encryption Demo**: Visualize dirty chunk tracking (only modified chunks re-encrypted)
-- **Testing**: Run encryption/decryption and random access tests
+- **Key Generation** (Section 01 — `#keygen`): Generate X25519, P-256, or ML-KEM-768 keypairs
+- **Encryption** (Section 02 — `#encrypt`): Encrypt data with passwords, public keys, or composable paths
+- **Decryption** (Section 03 — `#decrypt`): Decrypt SAFE messages with passwords or private keys
+- **Credentials** (Section 04 — `#keyring`): Save, import, export, and manage keys and passwords
+- **Unlock Management** (Section 05 — `#unlock`): Add/remove recipients without re-encrypting payload
+- **Re-encryption Demo** (Section 06 — `#reencrypt`): Visualize dirty chunk tracking (only modified chunks re-encrypted)
+- **Tests** (Section 07 — `#tests`): Run encryption/decryption and random access tests
+- **Log** (Section 08 — `#log`): View operation log output
 
-**Workflow:**
+**Manual workflow (no automation needed):**
 
-The web interface provides a complete encrypt/decrypt workflow:
+Users can interact with the web interface directly:
 
 1. **Generate Keys** (Section 01): Select KEM type (X25519/P-256/ML-KEM-768), click "Generate"
-2. **Encrypt** (Section 02): Enter plaintext, configure recipient path (public key or password steps), click "Encrypt"
-3. **Decrypt** (Section 03): Encrypted message auto-populates, credentials auto-added from saved keys, click "Decrypt"
+2. **Encrypt** (Section 02): Enter plaintext or use a file, add recipient steps (public key or password), click "Encrypt". Copy or download the output.
+3. **Decrypt** (Section 03): Paste or upload a SAFE message, add credentials (private key or password), click "Decrypt". Copy or download the plaintext.
 
-Keys are automatically saved in browser storage and can be reused across the interface.
+Generated keys are automatically saved in the Credentials section (04) and can be reused across operations.
 
-**Browser automation approach:**
+**Agent with MCP browser tools (Playwright, Puppeteer, etc.):**
 
-Use browser automation (Selenium, Playwright, Puppeteer) to programmatically interact with the page. The interface uses ARIA landmarks and accessible element references:
+If you have access to browser automation tools (e.g., Playwright MCP server, Claude in Chrome, Puppeteer MCP), you can drive the web interface directly. The interface uses semantic ARIA roles:
+
+- **Navigation**: Anchor links `#keygen`, `#encrypt`, `#decrypt`, `#keyring`, `#unlock`, `#reencrypt`, `#tests`, `#log`
+- **Sections**: `role="region"` with labels like "01 / Key Generation"
+- **Buttons**: `role="button"` with descriptive labels (e.g., "Generate new keypair with selected KEM type", "Encrypt plaintext with configured settings and recipient path", "Decrypt SAFE message using provided credentials")
+- **Inputs**: `role="textbox"` / `role="combobox"` with accessible names
+- **Log output**: `role="log"` in section 08
+
+Example workflow using MCP Playwright tools:
+
+```
+# 1. Navigate to thesafe.dev
+browser_navigate(url="https://thesafe.dev")
+
+# 2. Generate a keypair
+browser_select_option(ref=<kem-type-combobox>, values=["X25519"])
+browser_click(ref=<generate-button>)
+
+# 3. Encrypt with password
+browser_type(ref=<plaintext-textbox>, text="secret message")
+browser_click(ref=<add-step-button>)  # Opens step config
+# Select "Password" step type, fill password, add step
+browser_click(ref=<encrypt-button>)
+
+# 4. Read encrypted output from the output textbox
+
+# 5. Decrypt
+# Paste SAFE message into decrypt input, add credentials, click Decrypt
+# Read decrypted output
+```
+
+Take a snapshot (`browser_snapshot`) after each action to get updated element references.
+
+**Programmatic browser automation (standalone scripts):**
+
+For non-MCP environments, use Playwright or Puppeteer directly:
 
 ```python
 # Example with Playwright (Python)
@@ -105,114 +144,63 @@ from playwright.sync_api import sync_playwright
 with sync_playwright() as p:
     browser = p.chromium.launch()
     page = browser.new_page()
-    page.goto('https://grittygrease.github.io/safe')
-    
+    page.goto('https://thesafe.dev')
+
     # Generate X25519 keypair
     page.get_by_role("combobox", name="Select key encapsulation mechanism type").select_option("X25519")
     page.get_by_role("button", name="Generate new keypair").click()
-    
+
     # Get generated keys (from textboxes after generation)
     page.wait_for_selector('[aria-label*="public key in base64"]')
     pub_key = page.locator('[aria-label*="Generated public key"]').input_value()
     priv_key = page.locator('[aria-label*="Generated private key"]').input_value()
-    
+
     # Encrypt with password
     plaintext_box = page.get_by_role("textbox", name="Enter plaintext message to encrypt")
     plaintext_box.fill('secret message')
-    
-    # Change step type to Password
-    page.get_by_role("combobox", name="Select encryption step type").select_option("Password")
+
+    # Add a password step
+    page.get_by_role("button", name="Add encryption step").click()
     page.get_by_role("textbox", name="Enter password").fill("mypassword")
     page.get_by_role("button", name="Add encryption step").click()
-    
+
     # Encrypt
     page.get_by_role("button", name="Encrypt plaintext").click()
     page.wait_for_selector('[aria-label*="Encrypted SAFE message output"]')
     encrypted = page.locator('[aria-label*="Encrypted SAFE message output"]').input_value()
-    
+
     # Decrypt (message auto-populates in decrypt section)
     page.get_by_role("button", name="Decrypt SAFE message").click()
     page.wait_for_selector('[aria-label*="Decrypted plaintext message"]')
     decrypted = page.locator('[aria-label*="Decrypted plaintext message"]').input_value()
-    
+
     print(f"Decrypted: {decrypted}")  # "secret message"
     browser.close()
 ```
 
-```javascript
-// Example with Puppeteer (Node.js)
-const puppeteer = require('puppeteer');
+**Credentials management:**
 
-(async () => {
-  const browser = await puppeteer.launch();
-  const page = await browser.newPage();
-  await page.goto('https://grittygrease.github.io/safe');
-  
-  // Generate X25519 key
-  await page.select('select[aria-label*="key encapsulation"]', 'x25519');
-  await page.click('button[aria-label*="Generate new keypair"]');
-  
-  // Wait for key generation
-  await page.waitForSelector('textbox[aria-label*="Generated public key"]');
-  
-  // Encrypt with the generated key (automatically added to recipient path)
-  const plaintext = await page.$('textarea[aria-label*="Enter plaintext message"]');
-  await plaintext.type('secret message');
-  
-  await page.click('button[aria-label*="Encrypt plaintext"]');
-  await page.waitForSelector('textarea[aria-label*="Encrypted SAFE message output"]');
-  
-  // Get encrypted output
-  const encrypted = await page.$input('textarea[aria-label*="Encrypted SAFE"]');
-  
-  // Decrypt (credentials auto-added from saved keys)
-  await page.click('button[aria-label*="Decrypt SAFE message"]');
-  await page.waitForSelector('textarea[aria-label*="Decrypted plaintext"]');
-  
-  const decrypted = await page.$input('textarea[aria-label*="Decrypted plaintext"]');
-  console.log('Decrypted:', decrypted);
-  
-  await browser.close();
-})();
-```
+The Credentials section (04) supports:
+- **Add Key**: Import a public or private key
+- **Add Password**: Save a password for reuse
+- **Export**: Export all credentials as an encrypted backup
+- **Import**: Import a previously exported credential backup
+- **Clear All**: Delete all saved credentials
 
-**Key Interface Elements:**
+Generated keys are automatically saved here with quick action buttons for each key.
 
-The page uses semantic ARIA roles for automation:
-- Sections: `role="region"` with labels like "01 / Key Generation"
-- Buttons: `role="button"` with descriptive labels
-- Inputs: `role="textbox"` / `role="combobox"` with accessible names
-- Log output: `role="log"` in section "07 / Log"
-
-**Saved Keys Feature:**
-
-Generated keys are automatically saved in browser storage. The "Saved Keys" section shows:
-- Key type and ID hints (e.g., "x25519 · dfb44fdT · Vc/09H6C")
-- Quick action buttons: Use, Enc (encrypt), Dec (decrypt), Pub, Priv, Del
-
-Click "Enc" on a saved key to auto-populate the encryption recipient path, or "Dec" to auto-populate decryption credentials.
-
-**Limitations:**
-- Requires browser automation framework (Playwright, Puppeteer, Selenium)
-- Slower than native CLI (browser startup overhead ~2-3 seconds)
-- Not suitable for batch operations or server deployments
-- Dependent on web page availability and GitHub Pages uptime
-- Keys stored in browser localStorage (not persistent across browsers/devices)
-
-**When to use:**
-- Prototyping on restricted systems without build tools or Go/Rust compilers
-- One-off encryption/decryption tasks in environments where CLI can't be installed
+**When to use the web interface:**
+- CLI can't be installed (no Go/Rust, restricted environment, sandboxed IDE)
+- No shell access (browser-only agent, web-based coding environment)
+- One-off encryption/decryption tasks
 - Testing SAFE format without installing dependencies
-- Educational/demonstration purposes or exploring SAFE features interactively
-- Quick verification of encryption format or testing composable paths
+- Quick key generation or format exploration
 
-**When NOT to use:**
-- Production systems (use native CLI)
-- Automated pipelines or CI/CD (install CLI instead)
-- High-volume operations (CLI is 10-100x faster)
+**When to prefer the CLI:**
+- Production systems or automated pipelines
+- Batch or high-volume operations (CLI is significantly faster)
 - Air-gapped or offline environments
-
-For production use, always prefer the native CLI installation.
+- Scripting with shell pipes and file I/O
 
 ## Quick Reference
 
@@ -263,6 +251,8 @@ safe encrypt -i file.txt -o file.safe -r "pwd:secret -> alice.pub"
 
 ### Decrypt
 
+Both `-p` and `-k` can be repeated for composable paths requiring multiple credentials.
+
 ```bash
 # With password
 safe decrypt -i file.safe -o file.txt -p "password"
@@ -272,6 +262,9 @@ safe decrypt -i file.safe -o file.txt -k alice.x25519.key
 
 # Two-factor (all credentials required)
 safe decrypt -i file.safe -o file.txt -p "secret" -k alice.key
+
+# Composable path with multiple passwords
+safe decrypt -i file.safe -o file.txt -p "first" -p "second"
 ```
 
 ### Piping (stdin/stdout)
@@ -558,6 +551,26 @@ safe unlock-add -i file.safe -o new-file.safe -p "pw" --recipient alice.pub
 | p-256 | FIPS compliant | 65B / 32B |
 | ml-kem-768 | Post-quantum | 1184B / 2400B |
 
+### Key ID Modes
+
+Control how much key identity information is included in UNLOCK blocks:
+
+| Mode | Flag | Behavior |
+|------|------|----------|
+| Full | `--key-id-mode full` | Default. Full key ID included — recipients can check if a message is for them without attempting decryption |
+| Hint | `--key-id-mode hint` | 4-digit hint only — reduces metadata, recipients may need to try decryption |
+| Anonymous | `--key-id-mode anonymous` | No key ID — recipient must try all their keys. Maximum privacy |
+
+```bash
+# Encrypt with hint-only key ID
+safe encrypt -i file.txt -o file.safe -r alice.pub --key-id-mode hint
+
+# Encrypt with no key ID (anonymous recipient)
+safe encrypt -i file.txt -o file.safe -r alice.pub --key-id-mode anonymous
+```
+
+Use `hint` or `anonymous` when you want to hide *who* can decrypt a message. The encrypted data is identical — only the metadata changes.
+
 ## Migration from GPG/PGP
 
 ```bash
@@ -695,9 +708,9 @@ Before attempting to decrypt, check if your key ID matches any unlock block:
 safe info -i message.safe
 # Output includes:
 #   UNLOCK Blocks: 2
-#   [0] hpke(kem=x25519)
+#   [0] hpke(kem=x25519, id=1SB5W2LJ8/DNu8rn+vaGHA==)
 #       Key ID: 1SB5W2LJ8/DNu8rn+vaGHA==
-#   [1] hpke(kem=ml-kem-768)
+#   [1] hpke(kem=ml-kem-768, id=abc123...)
 #       Key ID: abc123...
 
 # Get your key's ID
@@ -707,6 +720,8 @@ safe keyinfo ~/.safe/pub/id.x25519.pub
 
 # If your Key ID matches one of the unlock blocks, you can decrypt
 ```
+
+**Note on key ID modes:** If the sender used `--key-id-mode hint`, you'll see `hint=XXXX` instead of a full ID. If they used `--key-id-mode anonymous`, there will be no key ID at all — you'll need to try decrypting with each of your keys.
 
 ### Workflow: Receive and Reply
 
