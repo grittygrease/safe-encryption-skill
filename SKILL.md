@@ -25,11 +25,12 @@ SAFE is a modern encryption CLI with post-quantum support, multi-recipient encry
 When this skill is loaded:
 1. Check if `safe` is installed (`which safe`). If not, try to install it automatically without asking. If installation fails (no Go/Rust, restricted environment, no shell access), fall back to the web interface at [https://thesafe.dev](https://thesafe.dev) — see "Browser-Based Alternative" below.
 2. When the user asks to encrypt/decrypt, just do it. Don't ask for confirmation.
-3. If a password is needed and not provided, ask for it once, then proceed.
-4. If a key file is needed, check `~/.safe/keys/` (private) and `~/.safe/pub/` (public) first, then the current directory. If not found, offer to generate one.
+3. If a password is needed and not provided, use `-p` without a value (prompts interactively or reads `SAFE_PASSPHRASE` env var). In automation, use `-p env:VARNAME` to read from environment variables.
+4. If a key file is needed, run `safe keys` to check existing identities and recipients. If no key exists, run `safe keygen x25519` to generate one (auto-stores to `~/.safe/`).
 5. **Always use absolute paths** for key files and encrypted files to avoid working directory issues.
-6. When generating personal keys, store them in `~/.safe/keys/` by default (create directories if needed), then move `.pub` files to `~/.safe/pub/`.
-7. **Always pipe instead of writing temp files.** When decrypting inline/embedded content (base64, pasted data), pipe directly: `echo "..." | base64 -d | safe decrypt -i - -o - -k key`. Never write intermediate `.safe` files to `/tmp` or elsewhere.
+6. **Always pipe instead of writing temp files.** When decrypting inline/embedded content (base64, pasted data), pipe directly: `echo "..." | base64 -d | safe decrypt -k key.key`. Never write intermediate `.safe` files to `/tmp` or elsewhere.
+7. **Bare name recipients work.** Use `-r alice` instead of `-r /full/path/to/alice.x25519.pub` when the recipient is in `~/.safe/recipients/`.
+8. **Decrypt auto-discovers keys.** If no `-k` or `-p` is provided, `safe decrypt` automatically tries all keys in `~/.safe/keys/`.
 
 ## Installation
 
@@ -100,38 +101,133 @@ Generated keys are automatically saved in the Credentials section (04) and can b
 
 **Agent with MCP browser tools (Playwright, Puppeteer, etc.):**
 
-If you have access to browser automation tools (e.g., Playwright MCP server, Claude in Chrome, Puppeteer MCP), you can drive the web interface directly. The interface uses semantic ARIA roles:
+If you have access to browser automation tools (e.g., Playwright MCP server, Claude in Chrome, Puppeteer MCP), you can drive the web interface directly.
 
-- **Navigation**: Anchor links `#keygen`, `#encrypt`, `#decrypt`, `#keyring`, `#unlock`, `#reencrypt`, `#tests`, `#log`
-- **Sections**: `role="region"` with labels like "01 / Key Generation"
-- **Buttons**: `role="button"` with descriptive labels (e.g., "Generate new keypair with selected KEM type", "Encrypt plaintext with configured settings and recipient path", "Decrypt SAFE message using provided credentials")
-- **Inputs**: `role="textbox"` / `role="combobox"` with accessible names
-- **Log output**: `role="log"` in section 08
+**Key behaviors to know:**
+- After encrypting, output auto-populates into the decrypt section's SAFE message input
+- The browser auto-matches saved credentials and pre-adds them to decrypt
+- Generated keys are auto-saved to the Credentials section (04)
+- Always take a snapshot (`browser_snapshot`) after each action to get updated element references
 
-Example workflow using MCP Playwright tools:
+**ARIA labels for automation:**
+
+The interface uses semantic ARIA roles throughout:
+
+| Element | ARIA Label | Role |
+|---------|-----------|------|
+| KEM type selector | "Select key encapsulation mechanism type" | combobox |
+| Generate button | "Generate new keypair with selected KEM type" | button |
+| Plaintext input | "Enter plaintext message to encrypt" | textbox |
+| Add Step button | "Add encryption step to recipient path" | button |
+| Step type selector | "Select encryption step type" | combobox |
+| Password field (encrypt) | "Enter password for encryption step" | textbox |
+| Confirm step | "Confirm encryption step" | button |
+| Encrypt button | "Encrypt plaintext with configured settings and recipient path" | button |
+| Encrypted output | "Encrypted SAFE message output" | textbox |
+| SAFE message input | "Paste encrypted SAFE message to decrypt" | textbox |
+| Add credential button | "Add credential to decryption attempt" | button |
+| Credential type selector | "Select credential type" | combobox |
+| Password field (decrypt) | "Enter password for decryption" | textbox |
+| Confirm credential | "Confirm credential" | button |
+| Decrypt button | "Decrypt SAFE message using provided credentials" | button |
+| Decrypted output | "Decrypted plaintext message" | textbox |
+| Copy buttons | "Copy encrypted SAFE message to clipboard" / "Copy decrypted plaintext to clipboard" | button |
+| Download buttons | "Download encrypted SAFE message as file" / "Download decrypted file" | button |
+| Use File toggles | "Use file instead of plaintext input" / "Use file instead of SAFE message input" | generic (clickable) |
+| Navigation links | `#keygen`, `#encrypt`, `#decrypt`, `#keyring`, `#unlock`, `#reencrypt`, `#tests`, `#log` | link |
+| Sections | `role="region"` with labels like "01 / Key Generation" | region |
+| Log output | "Activity log showing operations and their results" | log |
+
+**Credentials section shortcut buttons:**
+
+Each saved key in Section 04 has quick action buttons:
+- **Enc**: Adds the public key as an encryption recipient step (one click — skips the Add Step → select type → paste → OK workflow)
+- **Dec**: Adds the private key as a decrypt credential (one click — skips the Add → select type → paste → OK workflow)
+- **PUB**: Shows/copies the public key
+- **PRIV**: Shows/copies the private key
+- **Del**: Removes the key
+
+**Prefer using Enc/Dec shortcuts** over the manual Add Step flow when keys are saved in credentials — it reduces 4 interactions to 1.
+
+**File upload:**
+
+Both encrypt and decrypt sections have a "Use File" toggle. Clicking it triggers a file chooser dialog. With MCP Playwright, use `browser_file_upload` to provide the file path. Note: file paths must be within the MCP server's allowed directories.
+
+**Example: Encrypt with password (MCP Playwright)**
 
 ```
-# 1. Navigate to thesafe.dev
+# 1. Navigate
 browser_navigate(url="https://thesafe.dev")
+browser_snapshot()
 
-# 2. Generate a keypair
-browser_select_option(ref=<kem-type-combobox>, values=["X25519"])
-browser_click(ref=<generate-button>)
+# 2. Type plaintext (use ref from snapshot for "Enter plaintext message to encrypt")
+browser_type(ref=<plaintext-ref>, text="secret data")
 
-# 3. Encrypt with password
-browser_type(ref=<plaintext-textbox>, text="secret message")
-browser_click(ref=<add-step-button>)  # Opens step config
-# Select "Password" step type, fill password, add step
-browser_click(ref=<encrypt-button>)
+# 3. Add password step
+browser_click(ref=<add-step-button-ref>)      # "Add encryption step to recipient path"
+browser_snapshot()                              # Get refs for step config form
 
-# 4. Read encrypted output from the output textbox
+# 4. Select Password type (default may be "Public Key")
+browser_select_option(ref=<step-type-ref>, values=["Password"])  # "Select encryption step type"
+browser_snapshot()                              # Get password field ref
 
-# 5. Decrypt
-# Paste SAFE message into decrypt input, add credentials, click Decrypt
-# Read decrypted output
+# 5. Enter password
+browser_type(ref=<password-ref>, text="my-password")  # "Enter password for encryption step"
+
+# 6. Confirm the step
+browser_click(ref=<ok-ref>)                    # "Confirm encryption step"
+
+# 7. Encrypt
+browser_click(ref=<encrypt-ref>)               # "Encrypt plaintext with configured settings..."
+browser_snapshot()                              # Output is in "Encrypted SAFE message output" textbox
 ```
 
-Take a snapshot (`browser_snapshot`) after each action to get updated element references.
+**Example: Encrypt with saved key (fastest path)**
+
+```
+# 1. Navigate
+browser_navigate(url="https://thesafe.dev")
+browser_snapshot()
+
+# 2. Type plaintext
+browser_type(ref=<plaintext-ref>, text="secret data")
+
+# 3. Click "Enc" on a saved key in Credentials section (one click adds recipient)
+browser_click(ref=<enc-button-ref>)
+
+# 4. Encrypt
+browser_click(ref=<encrypt-ref>)
+browser_snapshot()
+```
+
+**Example: Decrypt from cold (no auto-populated credentials)**
+
+```
+# 1. Paste SAFE message into decrypt input
+browser_type(ref=<safe-message-ref>, text="-----BEGIN SAFE UNLOCK-----\n...")
+
+# 2. Add credential
+browser_click(ref=<add-credential-ref>)        # "Add credential to decryption attempt"
+browser_snapshot()
+
+# 3. Select Password type (default is "Private Key")
+browser_select_option(ref=<credential-type-ref>, values=["Password"])
+browser_snapshot()
+
+# 4. Enter password
+browser_type(ref=<password-ref>, text="my-password")
+
+# 5. Confirm credential
+browser_click(ref=<confirm-ref>)               # "Confirm credential"
+
+# 6. Decrypt
+browser_click(ref=<decrypt-ref>)               # "Decrypt SAFE message using provided credentials"
+browser_snapshot()                              # Output is in "Decrypted plaintext message" textbox
+```
+
+**Example: Same-session encrypt→decrypt (auto-populated)**
+
+After encrypting, the output auto-populates into the decrypt section. If the matching key is saved in credentials, it auto-adds the private key. Just click Decrypt — no manual credential entry needed.
 
 **Programmatic browser automation (standalone scripts):**
 
@@ -150,29 +246,20 @@ with sync_playwright() as p:
     page.get_by_role("combobox", name="Select key encapsulation mechanism type").select_option("X25519")
     page.get_by_role("button", name="Generate new keypair").click()
 
-    # Get generated keys (from textboxes after generation)
-    page.wait_for_selector('[aria-label*="public key in base64"]')
-    pub_key = page.locator('[aria-label*="Generated public key"]').input_value()
-    priv_key = page.locator('[aria-label*="Generated private key"]').input_value()
-
     # Encrypt with password
-    plaintext_box = page.get_by_role("textbox", name="Enter plaintext message to encrypt")
-    plaintext_box.fill('secret message')
-
-    # Add a password step
-    page.get_by_role("button", name="Add encryption step").click()
-    page.get_by_role("textbox", name="Enter password").fill("mypassword")
-    page.get_by_role("button", name="Add encryption step").click()
-
-    # Encrypt
+    page.get_by_role("textbox", name="Enter plaintext message to encrypt").fill("secret message")
+    page.get_by_role("button", name="Add encryption step to recipient path").click()
+    page.get_by_label("Select encryption step type").select_option("Password")
+    page.get_by_role("textbox", name="Enter password for encryption step").fill("mypassword")
+    page.get_by_role("button", name="Confirm encryption step").click()
     page.get_by_role("button", name="Encrypt plaintext").click()
-    page.wait_for_selector('[aria-label*="Encrypted SAFE message output"]')
-    encrypted = page.locator('[aria-label*="Encrypted SAFE message output"]').input_value()
 
-    # Decrypt (message auto-populates in decrypt section)
+    # Read encrypted output
+    encrypted = page.get_by_label("Encrypted SAFE message output").input_value()
+
+    # Decrypt (message and credentials auto-populate from encrypt)
     page.get_by_role("button", name="Decrypt SAFE message").click()
-    page.wait_for_selector('[aria-label*="Decrypted plaintext message"]')
-    decrypted = page.locator('[aria-label*="Decrypted plaintext message"]').input_value()
+    decrypted = page.get_by_label("Decrypted plaintext message").input_value()
 
     print(f"Decrypted: {decrypted}")  # "secret message"
     browser.close()
@@ -181,13 +268,30 @@ with sync_playwright() as p:
 **Credentials management:**
 
 The Credentials section (04) supports:
-- **Add Key**: Import a public or private key
-- **Add Password**: Save a password for reuse
-- **Export**: Export all credentials as an encrypted backup
-- **Import**: Import a previously exported credential backup
-- **Clear All**: Delete all saved credentials
+- **Add Key**: Import a public or private key (PEM or base64)
+- **Add Password**: Save a password for quick reuse
+- **Export**: Export all credentials as an encrypted SAFE backup (password-protected `.safe` file containing private keys in PEM format)
+- **Import**: Import a previously exported credential backup (file upload + passphrase)
+- **Clear All**: Delete all saved credentials (shows a confirm dialog)
 
-Generated keys are automatically saved here with quick action buttons for each key.
+Generated keys are automatically saved here. Each key shows its type and Key ID hints, with Enc/Dec/PUB/PRIV/Del action buttons.
+
+**Export/Import workflow (for persisting keys across sessions):**
+
+Export:
+1. Click "Export credentials as encrypted backup" → dialog appears
+2. Enter passphrase + confirm passphrase → click OK
+3. Downloads `safe-credentials-backup.safe` (a standard SAFE file, pwd-encrypted)
+4. The export contains private keys only (PEM format). Public keys are derived on re-import.
+
+Import:
+1. Click "Import" → file chooser appears (use `browser_file_upload` with MCP)
+2. Select the `.safe` backup file → passphrase dialog appears
+3. Enter passphrase → click OK
+4. Keys are restored with full functionality (Enc/Dec/PUB/PRIV buttons)
+5. Duplicates are automatically skipped
+
+The exported `.safe` file is CLI-compatible: `safe decrypt safe-credentials-backup.safe -p "passphrase"` reveals the PEM keys.
 
 **When to use the web interface:**
 - CLI can't be installed (no Go/Rust, restricted environment, sandboxed IDE)
@@ -206,130 +310,205 @@ Generated keys are automatically saved here with quick action buttons for each k
 
 ### Key Storage Convention
 
-Personal keys are stored in `~/.safe/` (similar to `~/.ssh/`), with public and private keys separated:
+Personal keys are stored in `~/.safe/` (similar to `~/.ssh/`). The CLI manages this directory automatically:
 
 ```bash
-mkdir -p ~/.safe/keys ~/.safe/pub && chmod 700 ~/.safe ~/.safe/keys
-safe keygen x25519 -o ~/.safe/keys/id   # Creates id.x25519.pub and id.x25519.key
-mv ~/.safe/keys/id.x25519.pub ~/.safe/pub/
-chmod 600 ~/.safe/keys/*                 # Protect private keys
+safe keygen x25519                     # Generates keypair, auto-stores to ~/.safe/
+safe keygen x25519 -n alice            # Named identity "alice"
+safe keys                              # List all identities and recipients
 ```
 
-Directory structure:
-- `~/.safe/keys/` - Private keys (600 permissions, never share)
-- `~/.safe/pub/` - Public keys (safe to share)
+Directory structure (auto-created by `safe keygen`):
+- `~/.safe/keys/` — Private keys (0700, never share). E.g., `nick.x25519.key`
+- `~/.safe/*.pub` — Your own public keys (safe to share). E.g., `nick.x25519.pub`
+- `~/.safe/recipients/` — Other people's public keys (managed by `safe keys add`)
 
-Project-specific keys can be stored in `.safe/keys/` and `.safe/pub/` within the project directory.
+Override with `SAFE_HOME` env var. Fallback: `./.safe/` in current directory.
 
 ### Generate Keys
 
 | Key Type | Command | Use Case |
 |----------|---------|----------|
-| x25519 | `safe keygen x25519 -o ~/.safe/keys/id` | Fast, default, widely supported |
-| p-256 | `safe keygen p-256 -o ~/.safe/keys/id` | FIPS compliance |
-| ml-kem-768 | `safe keygen ml-kem-768 -o ~/.safe/keys/id` | Post-quantum security |
+| x25519 | `safe keygen x25519` | Fast, default, widely supported |
+| p-256 | `safe keygen p-256` | FIPS compliance |
+| ml-kem-768 | `safe keygen ml-kem-768` | Post-quantum security (seed by default) |
 
-After generating, move public key: `mv ~/.safe/keys/*.pub ~/.safe/pub/`
+By default, keygen uses `$USER` as the identity name and stores keys in `~/.safe/`. Override with `-n name` or `-o path`.
 
-Output: `<name>.<type>.pub` (share this) and `<name>.<type>.key` (keep secret)
+```bash
+safe keygen x25519                     # ~/.safe/keys/$USER.x25519.key + ~/.safe/$USER.x25519.pub
+safe keygen x25519 -n alice            # ~/.safe/keys/alice.x25519.key + ~/.safe/alice.x25519.pub
+safe keygen ml-kem-768                 # Generates seed (compact format, default for ML-KEM)
+safe keygen ml-kem-768 -no-seed        # Raw keypair instead of seed
+safe keygen x25519 -o /tmp/throwaway   # Custom output path
+safe keygen x25519 -force              # Overwrite existing files
+```
+
+Output: `<name>.<type>.pub` (share this) and `<name>.<type>.key` (keep secret). Public key is always written to `~/.safe/`.
+
+### Manage Keys
+
+```bash
+# List all identities and known recipients
+safe keys
+
+# Import a recipient's public key
+safe keys add alice.x25519.pub --name alice
+
+# Remove a recipient
+safe keys remove alice
+
+# Derive public key from private key (by name or path)
+safe pubkey alice                       # Looks up ~/.safe/keys/alice.*.key
+safe pubkey /path/to/key.key            # Direct file path
+
+# View key details
+safe keyinfo alice.x25519.pub
+```
+
+Bare names work as recipients after import: `safe encrypt data.txt -r alice` resolves from `~/.safe/recipients/`. Also resolves system users: `-r bob` checks `~bob/.safe/*.pub`.
 
 ### Encrypt
 
+stdin is the default input, stdout is the default output. Positional argument sets input file.
+
 ```bash
 # Password-protect a file
-safe encrypt -i secrets.txt -o secrets.safe -p "strong-password"
+safe encrypt secrets.txt -o secrets.safe -p "strong-password"
 
-# Encrypt to recipient's public key
-safe encrypt -i file.txt -o file.safe -r alice.x25519.pub
+# Encrypt to recipient (bare name or key file)
+safe encrypt file.txt -o file.safe -r alice
 
 # Multiple recipients (OR - any one can decrypt)
-safe encrypt -i file.txt -o file.safe -r alice.pub -r bob.pub
+safe encrypt file.txt -o file.safe -r alice -r bob
 
-# Two-factor: password AND key required
-safe encrypt -i file.txt -o file.safe -r "pwd:secret -> alice.pub"
+# Two-factor: password AND key required (+ is AND separator)
+safe encrypt file.txt -o file.safe -r "pwd:secret + alice.pub"
+
+# Pipe from stdin (default)
+echo "secret" | safe encrypt -p "pw" > msg.safe
+
+# Password from environment variable
+safe encrypt file.txt -o file.safe -p env:MY_PASSWORD
+
+# PBKDF2 instead of argon2id
+safe encrypt file.txt -o file.safe -p "pw" --kdf pbkdf2
 ```
 
 ### Decrypt
 
-Both `-p` and `-k` can be repeated for composable paths requiring multiple credentials.
+stdin is the default input, stdout is the default output. If no credentials are provided, keys from `~/.safe/keys/` are tried automatically.
 
 ```bash
 # With password
-safe decrypt -i file.safe -o file.txt -p "password"
+safe decrypt file.safe -p "password"
 
 # With private key
-safe decrypt -i file.safe -o file.txt -k alice.x25519.key
+safe decrypt file.safe -k alice.x25519.key
+
+# Auto-discover keys (no -k needed if keys are in ~/.safe/keys/)
+safe decrypt file.safe
+
+# age-compatible --identity flag
+safe decrypt file.safe --identity alice.key
 
 # Two-factor (all credentials required)
-safe decrypt -i file.safe -o file.txt -p "secret" -k alice.key
+safe decrypt file.safe -o file.txt -p "secret" -k alice.key
 
-# Composable path with multiple passwords
-safe decrypt -i file.safe -o file.txt -p "first" -p "second"
+# Write to file instead of stdout
+safe decrypt file.safe -o plaintext.txt -p "password"
+
+# Password from environment variable
+safe decrypt file.safe -p env:MY_PASSWORD
+```
+
+### Info
+
+Inspect a SAFE file's metadata without credentials:
+
+```bash
+safe info file.safe
+# Output:
+#   AEAD: aes-256-gcm
+#   Block Size: 65536
+#   Key Hash: spki-sha256-16
+#   Data size: 1048 bytes
+#   UNLOCK Blocks: 2
+#     [0] pwd(argon2id)
+#     [1] hpke(kem=x25519, id=r3YlsKxQHj1q1d/kKi5e3Q==)
+
+# From stdin
+cat file.safe | safe info
 ```
 
 ### Piping (stdin/stdout)
 
-Use `-i -` for stdin, `-o -` for stdout. All operations are binary-safe (no encoding issues).
+stdin and stdout are the defaults — no `-i -` or `-o -` needed. All operations are binary-safe.
 
 **Default behavior:** Always prefer piping over writing intermediate files to disk. This avoids leaving decrypted content on disk and is cleaner.
 
 ```bash
 # Decrypt base64-encoded content (PREFERRED - no temp file)
-echo "LS0tLS1CRUdJTi..." | base64 -d | safe decrypt -i - -o - -k ~/.safe/keys/id.x25519.key
+echo "LS0tLS1CRUdJTi..." | base64 -d | safe decrypt -k ~/.safe/keys/id.x25519.key
 
 # AVOID: Writing intermediate files
-# echo "LS0tLS1CRUdJTi..." | base64 -d > /tmp/file.safe && safe decrypt -i /tmp/file.safe ...
+# echo "LS0tLS1CRUdJTi..." | base64 -d > /tmp/file.safe && safe decrypt /tmp/file.safe ...
 
 # Basic stdin/stdout
-echo "secret" | safe encrypt -i - -o - -p "pw" > encrypted.safe
-cat encrypted.safe | safe decrypt -i - -o - -p "pw"
+echo "secret" | safe encrypt -p "pw" > encrypted.safe
+cat encrypted.safe | safe decrypt -p "pw"
 
 # Chain operations (re-encrypt with different key)
-safe decrypt -i a.safe -o - -p "pw1" | safe encrypt -i - -o b.safe -p "pw2"
+safe decrypt a.safe -p "pw1" | safe encrypt -o b.safe -p "pw2"
 
 # Encrypt with compression
-tar cz src/ | safe encrypt -i - -o backup.safe -r alice.pub
+tar cz src/ | safe encrypt -o backup.safe -r alice
 
 # Decrypt and decompress
-safe decrypt -i backup.safe -o - -k team.key | tar xz
+safe decrypt backup.safe -k team.key | tar xz
 
 # Decrypt remote file
-curl -s https://example.com/data.safe | safe decrypt -i - -o - -k my.key
+curl -s https://example.com/data.safe | safe decrypt -k my.key
 
 # Pipe through compression then encrypt
-safe encrypt -i - -o - -p "pw" < large.bin | gzip > encrypted.safe.gz
+safe encrypt -p "pw" < large.bin | gzip > encrypted.safe.gz
 
 # Decrypt gzipped safe file
-gunzip -c encrypted.safe.gz | safe decrypt -i - -o - -p "pw" > large.bin
+gunzip -c encrypted.safe.gz | safe decrypt -p "pw" > large.bin
 ```
+
+**Note:** `-i -` and `-o -` still work for explicit stdin/stdout but are no longer required.
 
 ## Common Use Cases
 
 ### Protect API Keys / .env Files
 
 ```bash
-safe encrypt -i .env -o .env.safe -p "dev-password"
-safe encrypt -i credentials.json -o credentials.safe -r ops-team.pub
+safe encrypt .env -o .env.safe -p "dev-password"
+safe encrypt credentials.json -o credentials.safe -r ops-team
 ```
 
 ### Share Secrets with a Teammate
 
 ```bash
 # They generate their key
-safe keygen x25519 -o teammate
+safe keygen x25519 -n teammate
 
-# You encrypt for them
-safe encrypt -i api-keys.txt -o api-keys.safe -r teammate.x25519.pub
+# You import their public key
+safe keys add teammate.x25519.pub --name teammate
 
-# They decrypt
-safe decrypt -i api-keys.safe -o api-keys.txt -k teammate.x25519.key
+# You encrypt for them (bare name!)
+safe encrypt api-keys.txt -o api-keys.safe -r teammate
+
+# They decrypt (auto-discovers keys from ~/.safe/keys/)
+safe decrypt api-keys.safe -o api-keys.txt
 ```
 
 ### Encrypt Backup Before Cloud Upload
 
 ```bash
 tar czf backup.tar.gz ~/Documents
-safe encrypt -i backup.tar.gz -o backup.safe -p "backup-phrase" -r recovery.pub
+safe encrypt backup.tar.gz -o backup.safe -p "backup-phrase" -r recovery
 # Upload backup.safe to S3/GCS/Dropbox
 ```
 
@@ -337,48 +516,48 @@ safe encrypt -i backup.tar.gz -o backup.safe -p "backup-phrase" -r recovery.pub
 
 ```bash
 # Encrypt a folder
-tar cz project/ | safe encrypt -i - -o project.safe -r team.pub
+tar cz project/ | safe encrypt -o project.safe -r team
 
 # Decrypt and extract
-safe decrypt -i project.safe -o - -k team.key | tar xz
+safe decrypt project.safe -k team.key | tar xz
 ```
 
 ### Git-Friendly Encrypted Secrets
 
 ```bash
 # Encrypt secrets, commit the .safe file
-safe encrypt -i .env.production -o .env.production.safe -r deploy.pub
+safe encrypt .env.production -o .env.production.safe -r deploy
 git add .env.production.safe  # Safe to commit
 
-# On deploy server
-safe decrypt -i .env.production.safe -o .env.production -k deploy.key
+# On deploy server (auto-discovers deploy key from ~/.safe/keys/)
+safe decrypt .env.production.safe -o .env.production
 ```
 
 ### Separation of Duties (Two People Required)
 
 ```bash
-# Encrypt requiring BOTH Alice and Bob
-safe encrypt -i codes.txt -o codes.safe -r "alice.pub -> bob.pub"
+# Encrypt requiring BOTH Alice and Bob (+ is AND)
+safe encrypt codes.txt -o codes.safe -r "alice.pub + bob.pub"
 
 # Decrypt (both must provide keys)
-safe decrypt -i codes.safe -o codes.txt -k alice.key -k bob.key
+safe decrypt codes.safe -o codes.txt -k alice.key -k bob.key
 ```
 
 ### Two-Factor Encryption (Password + Key)
 
 ```bash
 # Encrypt: requires password AND key
-safe encrypt -i secrets.txt -o secrets.safe -r "pwd:mypassword -> hardware.pub"
+safe encrypt secrets.txt -o secrets.safe -r "pwd:mypassword + hardware.pub"
 
 # Decrypt: must provide both
-safe decrypt -i secrets.safe -o secrets.txt -p "mypassword" -k hardware.key
+safe decrypt secrets.safe -o secrets.txt -p "mypassword" -k hardware.key
 ```
 
 ### Team Encryption + Emergency Backup
 
 ```bash
-safe encrypt -i secrets.txt -o secrets.safe \
-  -r alice.pub -r bob.pub -r carol.pub \
+safe encrypt secrets.txt -o secrets.safe \
+  -r alice -r bob -r carol \
   -p "emergency-recovery-phrase"
 ```
 
@@ -386,29 +565,29 @@ safe encrypt -i secrets.txt -o secrets.safe \
 
 ```bash
 # Generate both classical and PQ keys
-safe keygen x25519 -o alice
-safe keygen ml-kem-768 -o alice
+safe keygen x25519 -n alice
+safe keygen ml-kem-768 -n alice
 
 # Encrypt with both (future-proof against quantum computers)
-safe encrypt -i data.txt -o data.safe \
-  -r "pwd:phrase -> alice.x25519.pub -> alice.ml-kem-768.pub"
+safe encrypt data.txt -o data.safe \
+  -r "pwd:phrase + alice.x25519.pub + alice.ml-kem-768.pub"
 ```
 
 ### Temporary Decryption (No File on Disk)
 
 ```bash
 # Use decrypted content without writing to disk
-./my-app --config <(safe decrypt -i config.safe -o - -p "pw")
+./my-app --config <(safe decrypt config.safe -p "pw")
 
 # Compare two encrypted files
-diff <(safe decrypt -i old.safe -o - -p pw) <(safe decrypt -i new.safe -o - -p pw)
+diff <(safe decrypt old.safe -p pw) <(safe decrypt new.safe -p pw)
 ```
 
 ### Password Rotation
 
 ```bash
 # Change password without re-encrypting data
-safe unlock-replace -i secrets.safe -p "old-password" \
+safe unlock replace secrets.safe -p "old-password" \
   --index 0 --recipient "pwd:new-password"
 ```
 
@@ -416,24 +595,26 @@ safe unlock-replace -i secrets.safe -p "old-password" \
 
 ```bash
 # View current recipients
-safe info -i secrets.safe
+safe info secrets.safe
 
 # Remove compromised key, add new one
-safe unlock-remove -i secrets.safe -k admin.key --index 2
-safe unlock-add -i secrets.safe -k admin.key --recipient new-employee.pub
+safe unlock remove secrets.safe -k admin.key --index 2
+safe unlock add secrets.safe -k admin.key --recipient new-employee.pub
 ```
 
 ## Composable Paths (AND vs OR Logic)
 
 | Encrypt With | Decrypt Requires | Logic |
 |--------------|------------------|-------|
-| `-r alice.pub -r bob.pub` | `-k alice.key` OR `-k bob.key` | OR |
-| `-r "alice.pub -> bob.pub"` | `-k alice.key` AND `-k bob.key` | AND |
-| `-r "pwd:x -> alice.pub"` | `-p x` AND `-k alice.key` | AND |
-| `-p backup -r alice.pub` | `-p backup` OR `-k alice.key` | OR |
+| `-r alice -r bob` | `-k alice.key` OR `-k bob.key` | OR |
+| `-r "alice.pub + bob.pub"` | `-k alice.key` AND `-k bob.key` | AND |
+| `-r "pwd:x + alice.pub"` | `-p x` AND `-k alice.key` | AND |
+| `-p backup -r alice` | `-p backup` OR `-k alice.key` | OR |
 
 Multiple `-r` or `-p` flags = OR (any one works)
-Arrow `->` within one `-r` = AND (all required)
+`+` within one `-r` = AND (all required)
+
+**Note:** `->` is deprecated but still works. Use `+` for new code.
 
 ## Editing Encrypted Files
 
@@ -452,86 +633,94 @@ Read a portion of an encrypted file without decrypting the whole thing:
 
 ```bash
 # Read first 100 bytes
-safe read -i file.safe -o - -p "pw" --offset 0 --length 100
+safe read file.safe -p "pw" --offset 0 --length 100
 
 # Read bytes 500-600 to a file
-safe read -i file.safe -o excerpt.txt -k key.key --offset 500 --length 100
+safe read file.safe -o excerpt.txt -k key.key --offset 500 --length 100
 
 # Shorthand with -n for offset
-safe read -i file.safe -o - -p "pw" -n 1024 --length 256
+safe read file.safe -p "pw" -n 1024 --length 256
+
+# age-compatible --identity flag
+safe read file.safe --identity key.key -n 0 --length 100
 ```
 
 ### Write Bytes at Offset (In-Place Edit)
 
-Modify bytes at a specific position. Input and output can be the same file:
+Modify bytes at a specific position. In-place by default (no `-o` needed):
 
 ```bash
 # Overwrite bytes starting at offset 10
-safe write -i file.safe -o file.safe -p "pw" --offset 10 --data "new content"
+safe write file.safe -p "pw" -n 10 --data "new content"
 
 # Replace header from a file
-safe write -i config.safe -o config.safe -p "pw" --offset 0 --data-file header.bin
+safe write config.safe -p "pw" -n 0 --data-file header.bin
 
-# Write to new file (non-destructive)
-safe write -i original.safe -o modified.safe -p "pw" --offset 0 --data "UPDATED"
+# With --identity flag
+safe write file.safe --identity key.key -n 0 --data "UPDATED"
 ```
+
+**Note:** Write only supports in-place modification. Output defaults to overwriting the input file.
 
 ### Append Data
 
-Add data to the end of an encrypted file:
+Add data to the end of an encrypted file (in-place by default):
 
 ```bash
 # Append log entry
-safe append -i log.safe -o log.safe -p "pw" --data "$(date): Event occurred\n"
+safe append log.safe -p "pw" --data "$(date): Event occurred\n"
 
 # Append from file
-safe append -i data.safe -o data.safe -k key.key --data-file new-records.csv
+safe append data.safe -k key.key --data-file new-records.csv
 
 # Append binary data
-safe append -i archive.safe -o archive.safe -p "pw" --data-file chunk.bin
+safe append archive.safe -p "pw" --data-file chunk.bin
 ```
 
 ### In-Place Editing Workflow
 
 ```bash
 # 1. Check current content
-safe read -i config.safe -o - -p "pw" --offset 0 --length 50
+safe read config.safe -p "pw" -n 0 --length 50
 
 # 2. Make targeted edit
-safe write -i config.safe -o config.safe -p "pw" --offset 25 --data "new_value"
+safe write config.safe -p "pw" -n 25 --data "new_value"
 
 # 3. Verify the change
-safe read -i config.safe -o - -p "pw" --offset 0 --length 50
+safe read config.safe -p "pw" -n 0 --length 50
 ```
 
 ## Managing Recipients (UNLOCK Blocks)
 
-Modify who can decrypt without re-encrypting the data. These operations only change the UNLOCK blocks - the encrypted DATA remains identical.
+Modify who can decrypt without re-encrypting the data. These operations only change the UNLOCK blocks — the encrypted DATA remains identical.
 
 ```bash
 # View current recipients and their indexes
-safe info -i file.safe
+safe info file.safe
 # Shows: [0] pwd(argon2id)
 #        [1] hpke(kem=x25519, id=ABC123...)
 
 # Add new recipient (in-place by default)
-safe unlock-add -i file.safe -p "current-pw" --recipient alice.pub
-safe unlock-add -i file.safe -k admin.key --recipient "pwd:backup-pass"
+safe unlock add file.safe -p "current-pw" -r alice.pub
+safe unlock add file.safe -k admin.key -r "pwd:backup-pass"
 
 # Add composable recipient (password + key required)
-safe unlock-add -i file.safe -p "pw" --recipient "pwd:secret -> bob.pub"
+safe unlock add file.safe -p "pw" -r "pwd:secret + bob.pub"
 
 # Remove recipient by index (in-place)
-safe unlock-remove -i file.safe -k admin.key --index 0
+safe unlock remove file.safe -k admin.key --index 0
 
 # Replace recipient at index (in-place)
-safe unlock-replace -i file.safe -p "old-pw" --index 0 --recipient "pwd:new-pw"
+safe unlock replace file.safe -p "old-pw" --index 0 -r "pwd:new-pw"
 
 # Write to new file instead of in-place
-safe unlock-add -i file.safe -o new-file.safe -p "pw" --recipient alice.pub
+safe unlock add file.safe -o new-file.safe -p "pw" -r alice.pub
+
+# With --identity flag
+safe unlock add file.safe --identity admin.key -r bob.pub
 ```
 
-**Note:** You cannot remove the last UNLOCK block - the file would become undecryptable.
+**Note:** You cannot remove the last UNLOCK block — the file would become undecryptable.
 
 ## Algorithm Options
 
@@ -563,19 +752,41 @@ Control how much key identity information is included in UNLOCK blocks:
 
 ```bash
 # Encrypt with hint-only key ID
-safe encrypt -i file.txt -o file.safe -r alice.pub --key-id-mode hint
+safe encrypt file.txt -o file.safe -r alice --key-id-mode hint
 
 # Encrypt with no key ID (anonymous recipient)
-safe encrypt -i file.txt -o file.safe -r alice.pub --key-id-mode anonymous
+safe encrypt file.txt -o file.safe -r alice --key-id-mode anonymous
 ```
 
 Use `hint` or `anonymous` when you want to hide *who* can decrypt a message. The encrypted data is identical — only the metadata changes.
+
+### Password KDF
+
+| Algorithm | Flag | Use Case |
+|-----------|------|----------|
+| Argon2id | `--kdf argon2id` | Default. Memory-hard, GPU-resistant (64 MiB, 2 iterations) |
+| PBKDF2 | `--kdf pbkdf2` | Constrained environments (600,000 iterations) |
+
+```bash
+safe encrypt file.txt -o file.safe -p "pw" --kdf pbkdf2
+```
+
+### Key Hash Algorithm
+
+| Algorithm | Flag | Use Case |
+|-----------|------|----------|
+| SPKI-SHA256-16 | `--key-hash spki-sha256-16` | Default. 16-byte truncated SHA-256 |
+| SPKI-TurboSHAKE256 | `--key-hash spki-turboshake256` | Alternative hash function |
+
+```bash
+safe encrypt file.txt -o file.safe -r alice --key-hash spki-turboshake256
+```
 
 ## Migration from GPG/PGP
 
 ```bash
 # Decrypt old GPG file, re-encrypt with SAFE
-gpg -d old-secrets.gpg | safe encrypt -i - -o secrets.safe -r newkey.pub
+gpg -d old-secrets.gpg | safe encrypt -o secrets.safe -r newkey
 ```
 
 ## Edge Cases & Tips
@@ -595,14 +806,15 @@ gpg -d old-secrets.gpg | safe encrypt -i - -o secrets.safe -r newkey.pub
 **Decryption fails:**
 1. Check password/key is correct
 2. For composable paths, ALL credentials must be provided (partial won't work)
-3. Verify file integrity: `safe info -i file.safe`
+3. Verify file integrity: `safe info file.safe`
 4. Wrong key type? Check with `safe keyinfo mykey.key`
+5. Check available keys: `safe keys`
 
 **"safe: command not found":**
 Run installation steps above. Verify with `which safe`.
 
 **Composable path errors:**
-- `pwd:secret -> alice.pub` requires BOTH `-p secret` AND `-k alice.key` to decrypt
+- `pwd:secret + alice.pub` requires BOTH `-p secret` AND `-k alice.key` to decrypt
 - Providing only the password or only the key will fail
 - Order of `-k` flags doesn't matter, but all must be present
 
@@ -610,7 +822,7 @@ Run installation steps above. Verify with `which safe`.
 
 - `.key` files are secret — never share them
 - `.pub` files are safe to distribute
-- Composable paths (`->`) provide defense-in-depth
+- Composable paths (`+`) provide defense-in-depth
 - ML-KEM-768 protects against future quantum computers
 - Argon2id password hashing is memory-hard and GPU-resistant (64 MiB memory, 2 iterations)
 
@@ -621,40 +833,89 @@ Run installation steps above. Verify with `which safe`.
 Mitigations:
 ```bash
 # 1. Prefix with space to skip history (bash/zsh with HISTCONTROL=ignorespace)
- safe encrypt -i file.txt -o file.safe -p "secret"
+ safe encrypt file.txt -o file.safe -p "secret"
 
 # 2. Use a key file instead of password
-safe encrypt -i file.txt -o file.safe -r ~/.safe/pub/id.x25519.pub
+safe encrypt file.txt -o file.safe -r alice
 
-# 3. Read password from file (careful with permissions)
-safe encrypt -i file.txt -o file.safe -p "$(cat ~/.safe/.password)"
+# 3. Read password from environment variable (RECOMMENDED for automation)
+MY_PW="secret" safe encrypt file.txt -o file.safe -p env:MY_PW
 
-# 4. Clear history after use
+# 4. Use SAFE_PASSPHRASE env var with bare -p
+export SAFE_PASSPHRASE="secret"
+safe encrypt file.txt -o file.safe -p
+
+# 5. Read password from file (careful with permissions)
+safe encrypt file.txt -o file.safe -p "$(cat ~/.safe/.password)"
+
+# 6. Clear history after use
 history -d $(history 1 | awk '{print $1}')
 ```
 
-For high-security use cases, prefer key-based encryption over passwords.
+**`env:VARNAME` security:** Environment variables are visible to the current process and child processes. They're safer than command-line args (not in `/proc/*/cmdline`) but still visible via `/proc/*/environ` on Linux. For maximum security, use key-based encryption.
 
 ## Agent-to-Agent Encrypted Communication
 
 Agents can exchange encrypted messages across any text-based channel: email, forums, GitHub issues, Slack, shared files, etc.
+
+The key management system makes agent-to-agent communication simple:
+- **`safe keygen`** — generates identity keys (auto-stored in `~/.safe/`)
+- **`safe keys add`** — imports other agents' public keys as named recipients
+- **`safe encrypt -r name`** — encrypts to any known recipient by name
+- **`safe decrypt`** — auto-discovers keys, no `-k` flag needed
 
 ### First-Run Setup
 
 On first use, check for existing keys and generate if missing:
 
 ```bash
-# Check if agent identity exists
-if [ ! -f ~/.safe/pub/id.x25519.pub ]; then
-    mkdir -p ~/.safe/keys ~/.safe/pub
-    chmod 700 ~/.safe ~/.safe/keys
-    safe keygen x25519 -o ~/.safe/keys/id
-    mv ~/.safe/keys/id.x25519.pub ~/.safe/pub/
-    chmod 600 ~/.safe/keys/*
-    echo "Generated new agent identity:"
-    safe keyinfo ~/.safe/pub/id.x25519.pub
+# Check if any agent identities exist
+safe keys 2>/dev/null || true
+
+# Generate if missing
+if [ ! -f ~/.safe/keys/*.key ]; then
+    safe keygen x25519
+    echo "Generated new agent identity"
+    safe keys
 fi
 ```
+
+This creates:
+- `~/.safe/keys/$USER.x25519.key` — your private key (never share)
+- `~/.safe/$USER.x25519.pub` — your public key (share freely)
+
+### Exchanging Keys Between Agents
+
+Agents discover each other by sharing public keys. The `safe keys add` command imports keys into the recipients directory:
+
+```bash
+# Agent A: Share your public key
+cat ~/.safe/$USER.x25519.pub
+# Copy this to the other agent (paste, file, AGENTS.md, etc.)
+
+# Agent B: Import Agent A's public key
+safe keys add /path/to/agent-a.x25519.pub --name agent-a
+
+# Verify import
+safe keys
+# Shows:
+#   Identities:
+#     nick         x25519         /Users/nick/.safe/keys/nick.x25519.key
+#   Recipients:
+#     agent-a      x25519         /Users/nick/.safe/recipients/agent-a.x25519.pub
+
+# Now Agent B can encrypt to Agent A by name
+safe encrypt message.txt -o message.safe -r agent-a
+```
+
+**Advertising your keys directory:** Agents should make their `~/.safe/*.pub` files discoverable. Common approaches:
+
+| Location | How |
+|----------|-----|
+| `AGENTS.md` in repo | Include PEM block in markdown |
+| `~/.safe/*.pub` files | Other agents on same system: `-r username` resolves `~username/.safe/*.pub` |
+| GitHub gist | Post PEM key, recipient imports with `curl \| safe keys add` |
+| Forum/email signature | Include PEM block or link to public key |
 
 ### Convention: Reply-To Keys
 
@@ -668,7 +929,7 @@ fBhEEEB+CepxNQIfPtxnIhWbDUyo+Z/W17cYKlCbsDg=
 Here is the secret data you requested...
 ```
 
-When an agent decrypts a message and finds PEM public key blocks at the top, it knows how to send an encrypted reply.
+When an agent decrypts a message and finds PEM public key blocks at the top, it saves them with `safe keys add` and encrypts the reply to that name.
 
 **Multiple reply-to keys:** If the sender wants multiple agents/identities to decrypt the reply:
 
@@ -683,18 +944,18 @@ fBhEEEB+CepxNQIfPtxnIhWbDUyo+Z/W17cYKlCbsDg=
 Message body here...
 ```
 
-The receiving agent extracts all key blocks and encrypts the reply to all of them (creating multiple unlock blocks so any key can decrypt).
+The receiving agent extracts all key blocks, imports them with `safe keys add`, and encrypts the reply to all of them.
 
 ### Workflow: Send a Message
 
 ```bash
 # 1. Create message with your public key as reply address
-cat ~/.safe/pub/id.x25519.pub > message.txt
+safe pubkey $USER > message.txt
 echo "" >> message.txt
 echo "Here are the API credentials you requested..." >> message.txt
 
-# 2. Encrypt to recipient's public key
-safe encrypt -i message.txt -o message.safe -r recipient.x25519.pub
+# 2. Encrypt to recipient (bare name from recipients dir)
+safe encrypt message.txt -o message.safe -r recipient
 
 # 3. Share message.safe via any channel (email, forum, git, shared folder, etc.)
 ```
@@ -705,44 +966,39 @@ Before attempting to decrypt, check if your key ID matches any unlock block:
 
 ```bash
 # Get Key IDs from the encrypted file
-safe info -i message.safe
+safe info message.safe
 # Output includes:
 #   UNLOCK Blocks: 2
 #   [0] hpke(kem=x25519, id=1SB5W2LJ8/DNu8rn+vaGHA==)
-#       Key ID: 1SB5W2LJ8/DNu8rn+vaGHA==
 #   [1] hpke(kem=ml-kem-768, id=abc123...)
-#       Key ID: abc123...
 
-# Get your key's ID
-safe keyinfo ~/.safe/pub/id.x25519.pub
-# Output includes:
-#   Key ID: 1SB5W2LJ8/DNu8rn+vaGHA==
+# Get your key info
+safe keyinfo ~/.safe/$USER.x25519.pub
 
-# If your Key ID matches one of the unlock blocks, you can decrypt
+# Or just try to decrypt — auto-key discovery handles it
+safe decrypt message.safe -o message.txt
 ```
 
-**Note on key ID modes:** If the sender used `--key-id-mode hint`, you'll see `hint=XXXX` instead of a full ID. If they used `--key-id-mode anonymous`, there will be no key ID at all — you'll need to try decrypting with each of your keys.
+**Note on key ID modes:** If the sender used `--key-id-mode hint`, you'll see `hint=XXXX` instead of a full ID. If they used `--key-id-mode anonymous`, there will be no key ID at all — you'll need to try decrypting (auto-discovery handles this).
 
 ### Workflow: Receive and Reply
 
 ```bash
-# 1. Decrypt the message
-safe decrypt -i message.safe -o message.txt -k ~/.safe/keys/id.x25519.key
+# 1. Decrypt the message (auto-discovers keys from ~/.safe/keys/)
+safe decrypt message.safe -o message.txt
 
-# 2. Extract all reply-to keys (all PEM blocks at top of message)
-# Split into separate .pub files:
-csplit -z -f sender- -b '%02d.pub' message.txt '/-----END.*KEY-----/+1' '{*}' 2>/dev/null
+# 2. Extract reply-to keys and import them
+# Save PEM blocks to a temp file, then import:
+grep -A2 'BEGIN.*PUBLIC KEY' message.txt > /tmp/sender.pub
+safe keys add /tmp/sender.pub --name sender
 
-# Or extract all keys to one file (for -r flag per key):
-grep -A1 'BEGIN.*PUBLIC KEY' message.txt | grep -v '^--$' > sender-keys.txt
-
-# 3. Create and encrypt reply to all sender keys
-cat ~/.safe/pub/id.x25519.pub > reply.txt
+# 3. Create and encrypt reply
+safe pubkey $USER > reply.txt
 echo "" >> reply.txt
 echo "Thanks, here's my response..." >> reply.txt
 
-# Encrypt to all extracted keys (each -r creates an unlock block)
-safe encrypt -i reply.txt -o reply.safe -r sender-00.pub -r sender-01.pub
+# Encrypt to sender (bare name!)
+safe encrypt reply.txt -o reply.safe -r sender
 ```
 
 ### Publishing Your Public Key
@@ -769,9 +1025,13 @@ fBhEEEB+CepxNQIfPtxnIhWbDUyo+Z/W17cYKlCbsDg=
 -----END X25519 PUBLIC KEY-----
 \`\`\`
 
-To send encrypted data to this agent, save the key block above to a file and run:
+To send encrypted data to this agent:
 \`\`\`bash
-safe encrypt -i data.txt -o data.safe -r deploy-agent.pub
+# Import the key
+safe keys add deploy-agent.pub --name deploy
+
+# Encrypt
+safe encrypt data.txt -o data.safe -r deploy
 \`\`\`
 ```
 
@@ -780,41 +1040,37 @@ safe encrypt -i data.txt -o data.safe -r deploy-agent.pub
 Agents may have different keys for different contexts:
 
 ```bash
-~/.safe/pub/id.x25519.pub           # Default personal identity
-~/.safe/pub/work.x25519.pub         # Work identity
-./project/.safe/pub/deploy.pub      # Project-specific identity
+safe keygen x25519 -n personal     # ~/.safe/keys/personal.x25519.key
+safe keygen x25519 -n work         # ~/.safe/keys/work.x25519.key
+safe keygen ml-kem-768 -n pq       # ~/.safe/keys/pq.ml-kem-768.key
+
+# List all
+safe keys
 ```
 
-When sending, choose the appropriate reply-to key for the context. When receiving, check all your identities against the unlock blocks.
+When sending, choose the appropriate reply-to key for the context. When receiving, auto-discovery tries all keys in `~/.safe/keys/`.
 
 ### Error Handling
 
 If decryption fails even though key ID matched:
-1. The file may be corrupted - check with `safe info -i file.safe`
+1. The file may be corrupted — check with `safe info file.safe`
 2. For composable paths, ALL required credentials must be provided
 3. Report the error clearly; don't silently fail
 
 ### Checking All Identities
 
-When you have multiple keys, check if any match:
+With auto-key discovery, this is usually unnecessary. But for manual checking:
 
 ```bash
 # List all your identities
-for pub in ~/.safe/pub/*.pub; do
-  echo "$(basename $pub): $(safe keyinfo $pub | grep 'Key ID' | awk '{print $3}')"
-done
+safe keys
 
-# Check against message
-safe info -i message.safe | grep "Key ID"
+# Check message recipients
+safe info message.safe
 
-# Try each matching key until one works
-for key in ~/.safe/keys/*.key; do
-  if safe decrypt -i message.safe -o /dev/null -k "$key" 2>/dev/null; then
-    echo "Decrypts with: $key"
-    safe decrypt -i message.safe -o - -k "$key"
-    break
-  fi
-done
+# Just try to decrypt — auto-discovers all keys
+safe decrypt message.safe -o message.txt
+# If successful, prints: "safe: trying N key(s) from ~/.safe/keys"
 ```
 
 ### Auto-Generate AGENTS.md
@@ -835,38 +1091,37 @@ EOF
 
 # Add the public key
 echo '```' >> AGENTS.md
-cat ~/.safe/pub/id.x25519.pub >> AGENTS.md
+safe pubkey $USER >> AGENTS.md
 echo '```' >> AGENTS.md
 
 cat >> AGENTS.md << 'EOF'
 
 ## How to Send Encrypted Messages
 
-1. Save the public key block above to a file (e.g., `agent.pub`)
+1. Save the public key block above to a file and import it:
+   ```bash
+   safe keys add agent.pub --name agent
+   ```
 2. Create your message with your reply-to key:
    ```bash
-   cat ~/.safe/pub/id.x25519.pub > message.txt
+   safe pubkey $USER > message.txt
    echo "" >> message.txt
    echo "Your message here..." >> message.txt
    ```
 3. Encrypt and send:
    ```bash
-   safe encrypt -i message.txt -o message.safe -r agent.pub
+   safe encrypt message.txt -o message.safe -r agent
    ```
 4. Share `message.safe` via any channel (email, issue, PR, pastebin, etc.)
 
 ## Verifying Messages
 
-Check if a message is for you:
 ```bash
-# Get your key ID
-safe keyinfo ~/.safe/pub/id.x25519.pub | grep "Key ID"
-
 # Check message recipients
-safe info -i message.safe | grep "Key ID"
+safe info message.safe
 
-# If IDs match, decrypt
-safe decrypt -i message.safe -o message.txt -k ~/.safe/keys/id.x25519.key
+# Decrypt (auto-discovers keys from ~/.safe/keys/)
+safe decrypt message.safe -o message.txt
 ```
 EOF
 
@@ -879,11 +1134,11 @@ For quick, ephemeral encrypted message sharing:
 
 ```bash
 # Encrypt and post to termbin
-safe encrypt -i message.txt -o - -r recipient.pub | nc termbin.com 9999
+safe encrypt message.txt -r recipient | nc termbin.com 9999
 # Returns URL like: https://termbin.com/abc123
 
-# Recipient fetches and decrypts
-curl -s https://termbin.com/abc123 | safe decrypt -i - -o - -k ~/.safe/keys/id.x25519.key
+# Recipient fetches and decrypts (auto-discovers keys)
+curl -s https://termbin.com/abc123 | safe decrypt
 ```
 
 ### Posting a Public Message (Forum/Mailing List)
@@ -907,7 +1162,7 @@ Then ask your agent: "Decrypt the message below and reply encrypted to the sende
 ### My Public Key (for replies)
 EOF
 
-cat ~/.safe/pub/id.x25519.pub >> post.txt
+safe pubkey $USER >> post.txt
 
 cat >> post.txt << 'EOF'
 
@@ -915,11 +1170,11 @@ cat >> post.txt << 'EOF'
 EOF
 
 # Encrypt your message (with your reply-to key embedded in plaintext)
-cat ~/.safe/pub/id.x25519.pub > message.txt
+safe pubkey $USER > message.txt
 echo "" >> message.txt
 echo "Your actual message content here..." >> message.txt
 
-safe encrypt -i message.txt -o - -r recipient.pub >> post.txt
+safe encrypt message.txt -r recipient >> post.txt
 
 echo "" >> post.txt
 cat >> post.txt << 'EOF'
