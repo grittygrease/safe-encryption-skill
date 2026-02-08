@@ -1,0 +1,35 @@
+{
+  "name": "@grittygrease/safe-encryption-skill",
+  "version": "1.0.0",
+  "description": "AI agent skill for encrypting and decrypting files using SAFE - a modern encryption CLI with post-quantum support",
+  "agentskills": "SKILL.md",
+  "main": "SKILL.md",
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/grittygrease/safe-encryption-skill.git"
+  },
+  "keywords": [
+    "agent-skills",
+    "skill",
+    "claude-code",
+    "cursor",
+    "copilot",
+    "windsurf",
+    "encryption",
+    "cryptography",
+    "safe",
+    "post-quantum",
+    "ai-agent"
+  ],
+  "author": "Nick Sullivan",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/grittygrease/safe-encryption-skill/issues"
+  },
+  "homepage": "https://github.com/grittygrease/safe-encryption-skill#readme"
+}

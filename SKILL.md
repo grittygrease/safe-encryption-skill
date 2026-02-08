@@ -129,25 +129,34 @@ The interface uses semantic ARIA roles throughout:
 | Credential type selector | "Select credential type" | combobox |
 | Password field (decrypt) | "Enter password for decryption" | textbox |
 | Confirm credential | "Confirm credential" | button |
-| Decrypt button | "Decrypt SAFE message using provided credentials" | button |
+| Decrypt button | "Decrypt SAFE message using provided keychain" | button |
 | Decrypted output | "Decrypted plaintext message" | textbox |
 | Copy buttons | "Copy encrypted SAFE message to clipboard" / "Copy decrypted plaintext to clipboard" | button |
 | Download buttons | "Download encrypted SAFE message as file" / "Download decrypted file" | button |
+| Share button (output) | "Share encrypted SAFE message via URL" / "Share decrypted output via URL" | button |
+| Clear button (output) | "Clear encrypted output" / "Clear decrypted output" | button |
+| Share button (keychain) | "Share public key via URL" | button |
+| Label button (keychain) | "Rename key label" | button |
 | Use File toggles | "Use file instead of plaintext input" / "Use file instead of SAFE message input" | generic (clickable) |
-| Navigation links | `#keygen`, `#encrypt`, `#decrypt`, `#keyring`, `#unlock`, `#reencrypt`, `#tests`, `#log` | link |
+| Navigation links | New (#keygen), Encrypt (#encrypt), Decrypt (#decrypt), Keychain (#keyring), Advanced (expandable) | link |
+| Advanced sections | #unlock, #reencrypt, #tests, #log | link (under Advanced dropdown) |
 | Sections | `role="region"` with labels like "01 / Key Generation" | region |
 | Log output | "Activity log showing operations and their results" | log |
 
-**Credentials section shortcut buttons:**
+**Note**: The Advanced sections (#unlock, #reencrypt, #tests, #log) are accessed via an "Advanced" navigation item that expands to show these additional features.
 
-Each saved key in Section 04 has quick action buttons:
+**Keychain shortcut buttons:**
+
+Each saved key in Section 04 (Keychain) has quick action buttons:
 - **Enc**: Adds the public key as an encryption recipient step (one click — skips the Add Step → select type → paste → OK workflow)
 - **Dec**: Adds the private key as a decrypt credential (one click — skips the Add → select type → paste → OK workflow)
 - **PUB**: Shows/copies the public key
 - **PRIV**: Shows/copies the private key
-- **Del**: Removes the key
+- **Share**: Generates a shareable URL for the public key
+- **Label**: Rename the key for easier identification
+- **Del**: Removes the key from the keychain
 
-**Prefer using Enc/Dec shortcuts** over the manual Add Step flow when keys are saved in credentials — it reduces 4 interactions to 1.
+**Prefer using Enc/Dec shortcuts** over the manual Add Step flow when keys are saved in the keychain — it reduces 4 interactions to 1.
 
 **File upload:**
 
@@ -180,6 +189,10 @@ browser_click(ref=<ok-ref>)                    # "Confirm encryption step"
 # 7. Encrypt
 browser_click(ref=<encrypt-ref>)               # "Encrypt plaintext with configured settings..."
 browser_snapshot()                              # Output is in "Encrypted SAFE message output" textbox
+
+# Optional: Share or clear the output
+# browser_click(ref=<share-button-ref>)        # "Share encrypted SAFE message via URL"
+# browser_click(ref=<clear-button-ref>)        # "Clear encrypted output"
 ```
 
 **Example: Encrypt with saved key (fastest path)**
@@ -292,6 +305,63 @@ Import:
 5. Duplicates are automatically skipped
 
 The exported `.safe` file is CLI-compatible: `safe decrypt safe-credentials-backup.safe -p "passphrase"` reveals the PEM keys.
+
+### Agent Session Persistence (Browser Workflow)
+
+Agents can maintain a persistent identity across browser sessions by saving and re-uploading the keychain backup:
+
+**First browser session**:
+1. Navigate to https://thesafe.dev
+2. Generate keys (Section 01) or receive keys from other agents
+3. Export keychain: Click "Export" → enter passphrase → download `safe-credentials-backup.safe`
+4. Save the encrypted backup file to persistent storage (filesystem, database, cloud storage, etc.)
+5. Store the passphrase securely (environment variable, secure key store, etc.)
+
+**New browser session** (different browser, incognito, new tab, etc.):
+1. Navigate to https://thesafe.dev
+2. Import keychain: Click "Import" → upload `safe-credentials-backup.safe` → enter passphrase
+3. All keys are restored with full functionality (Enc/Dec/PUB/PRIV/Share/Label/Del)
+4. Agent can immediately encrypt/decrypt using saved keys
+
+**Benefits**:
+- Agents maintain the same cryptographic identity across sessions
+- No need to regenerate keys or re-exchange public keys with other agents
+- Encrypted communication history remains accessible
+- Works across different browsers, devices, and environments
+
+**Security notes**:
+- The backup file is encrypted with the passphrase (argon2id by default)
+- File is CLI-compatible: `safe decrypt safe-credentials-backup.safe -p "passphrase"`
+- Store the passphrase separately from the backup file
+- Backup contains only private keys in PEM format; public keys are derived on import
+
+**Example workflow with MCP Playwright**:
+
+```python
+# First session: Export keychain
+browser_click(ref=<export-button-ref>)  # "Export keychain"
+# Enter passphrase in dialog
+browser_type(ref=<passphrase-ref>, text="agent-secret-passphrase")
+browser_type(ref=<confirm-passphrase-ref>, text="agent-secret-passphrase")
+browser_click(ref=<ok-ref>)
+# File downloads as safe-credentials-backup.safe
+# Save this file to persistent storage
+
+# New session: Import keychain
+browser_navigate(url="https://thesafe.dev")
+browser_click(ref=<import-button-ref>)  # "Import keychain backup"
+browser_file_upload(paths=["/path/to/safe-credentials-backup.safe"])
+# Enter passphrase in dialog
+browser_type(ref=<passphrase-ref>, text="agent-secret-passphrase")
+browser_click(ref=<ok-ref>)
+# All keys restored, agent can now encrypt/decrypt
+```
+
+This enables agents to maintain cryptographic identities across:
+- Browser restarts
+- Incognito/private browsing sessions
+- Different physical machines
+- Cloud-based agent deployments
 
 **When to use the web interface:**
 - CLI can't be installed (no Go/Rust, restricted environment, sandboxed IDE)
