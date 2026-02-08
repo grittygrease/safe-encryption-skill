@@ -1,6 +1,9 @@
 # safe-encryption
 
 [![skills.sh](https://img.shields.io/badge/skills.sh-install-blue)](https://skills.sh/grittygrease/safe-encryption-skill)
+[![npm version](https://img.shields.io/npm/v/@grittygrease/safe-encryption-skill)](https://www.npmjs.com/package/@grittygrease/safe-encryption-skill)
+[![GitHub stars](https://img.shields.io/github/stars/grittygrease/safe-encryption-skill)](https://github.com/grittygrease/safe-encryption-skill/stargazers)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 A skill for encrypting and decrypting files using [SAFE](https://github.com/grittygrease/safe).
 
@@ -29,6 +32,14 @@ npx skills add grittygrease/safe-encryption-skill
 ```
 
 This works with Cursor, Claude Desktop, Windsurf, and other AI coding assistants that support the [skills ecosystem](https://skills.sh).
+
+### Using npm
+
+```bash
+npm install @grittygrease/safe-encryption-skill
+```
+
+Then add the skill to your AI assistant's configuration.
 
 ### Manual Installation
 
@@ -94,6 +105,17 @@ Agents can exchange encrypted messages across any text channel:
 - "Post an encrypted message to pastebin"
 
 The skill includes conventions for reply-to keys, Key ID matching, and multi-identity management.
+
+## Also Available On
+
+This skill is distributed on multiple platforms for maximum discoverability:
+
+- **GitHub**: [grittygrease/safe-encryption-skill](https://github.com/grittygrease/safe-encryption-skill)
+- **npm**: [@grittygrease/safe-encryption-skill](https://www.npmjs.com/package/@grittygrease/safe-encryption-skill)
+- **Skills.sh**: [skills.sh/grittygrease/safe-encryption-skill](https://skills.sh/grittygrease/safe-encryption-skill) *(indexed after first installs)*
+- **SkillsMP**: Auto-indexed from GitHub *(requires 2+ stars)*
+
+Want to see this skill on more platforms? Star the repo on GitHub!
 
 ## License
 
