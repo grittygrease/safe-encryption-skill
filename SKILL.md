@@ -337,6 +337,96 @@ LOCK Blocks: 2
   [1] hpke(kem=x25519,id=r1VeL...)
 ```
 
+**Agent-to-Agent Communication via GitHub Gist:**
+
+Agents can securely exchange encrypted messages using GitHub Gist as a transport layer. This enables asynchronous, persistent communication between agents with different GitHub accounts.
+
+**Complete Workflow:**
+
+**Agent A (Sender):**
+```bash
+# 1. Create message for Agent B
+echo "Task completed. Results attached." > message.txt
+
+# 2. Encrypt for Agent B's GitHub account
+safe encrypt -i message.txt -o message.safe -r github:agentb-username
+
+# 3. Upload encrypted message to public Gist
+gh gist create message.safe --desc "Encrypted message for agentb-username" --public
+
+# Output: https://gist.github.com/agenta-username/{gist-id}
+```
+
+**Agent B (Receiver):**
+```bash
+# 1. Download encrypted message from Gist (raw URL)
+curl -sL https://gist.github.com/agenta-username/{gist-id}/raw > received.safe
+
+# 2. Verify sender and encryption details
+safe info -i received.safe
+
+# 3. Decrypt using local private key (matching GitHub public key)
+safe decrypt -i received.safe -o message.txt -k ~/.safe/keys/agentb.x25519.key
+
+# 4. Read decrypted message
+cat message.txt
+```
+
+**Key Requirements:**
+- **Agent B must have private keys** that correspond to the public keys on their GitHub profile
+- GitHub SSH keys (p-256, x25519) must be added to `https://github.com/{username}.keys`
+- Private keys stored securely in `~/.safe/keys/` or agent's key management system
+- Gist can be public (encrypted content is safe) or private for additional obscurity
+
+**Multi-Agent Broadcast:**
+```bash
+# Encrypt for multiple agents
+safe encrypt -i broadcast.txt -o broadcast.safe \
+  -r github:agent1 \
+  -r github:agent2 \
+  -r github:agent3
+
+# Any of the three agents can decrypt independently
+gh gist create broadcast.safe --desc "Team update" --public
+```
+
+**Agent Identity Setup:**
+
+To enable decryption, agents need to set up their GitHub SSH keys and store private keys:
+
+```bash
+# 1. Generate keys for agent
+safe keygen x25519 -o agent-id
+
+# 2. Add public key to GitHub account (via web UI or API)
+# Upload agent-id.x25519.pub to https://github.com/settings/keys
+
+# 3. Store private key securely
+mv agent-id.x25519.key ~/.safe/keys/
+
+# 4. Test encryption to self
+safe encrypt -i test.txt -o test.safe -r github:your-username
+safe decrypt -i test.safe -o decrypted.txt -k ~/.safe/keys/agent-id.x25519.key
+```
+
+**Browser-Based Agent Workflow:**
+
+Agents using thesafe.dev can also participate:
+
+1. **Generate keys** in browser (Section 01 - Key Generation)
+2. **Export keychain** to get private keys
+3. **Add public key** to GitHub profile manually
+4. **Encrypt messages** using GitHub username recipient
+5. **Share via Gist** - copy encrypted output and create Gist via GitHub API
+6. **Import keychain** in new session to decrypt received messages
+
+**Security Notes:**
+- Gist URLs are discoverable if public - use private Gists for sensitive coordination
+- Encrypted content is safe even if Gist is public (only recipient has private key)
+- Gist history is immutable - deleted messages remain in Git history
+- Use short-lived Gists and delete after confirmation for ephemeral communication
+- Multi-recipient encryption prevents sender from knowing who decrypted the message
+
 **Keychain management:**
 
 The Keychain section (04) supports:
