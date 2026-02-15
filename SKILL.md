@@ -359,23 +359,44 @@ gh gist create message.safe --desc "Encrypted message for agentb-username" --pub
 
 **Agent B (Receiver):**
 ```bash
-# 1. Download encrypted message from Gist (raw URL)
-curl -sL https://gist.github.com/agenta-username/{gist-id}/raw > received.safe
+# Method 1: Direct pipe (simplest, auto-discovers keys)
+curl -sL https://gist.github.com/alice/{gist-id}/raw | safe decrypt
 
-# 2. Verify sender and encryption details
-safe info -i received.safe
+# Method 2: Download, inspect, then decrypt
+curl -sL https://gist.github.com/alice/{gist-id}/raw > received.safe
+safe info -i received.safe  # Verify sender and encryption details
+safe decrypt -i received.safe -o message.txt
 
-# 3. Decrypt using local private key (matching GitHub public key)
-safe decrypt -i received.safe -o message.txt -k ~/.safe/keys/agentb.x25519.key
+# Method 3: Explicit key (if auto-discovery doesn't work)
+curl -sL https://gist.github.com/alice/{gist-id}/raw | safe decrypt -k ~/.safe/keys/bob.x25519.key
+```
 
-# 4. Read decrypted message
-cat message.txt
+**SSH Key Auto-Discovery (SAFE CLI v2.3+):**
+
+The SAFE CLI automatically discovers and uses SSH private keys from `~/.ssh/`:
+- ✅ **Ed25519 keys** → converted to X25519
+- ✅ **P-256 ECDSA keys** → used directly
+- ✅ **Unencrypted keys only** (passphrase-protected keys silently skipped)
+- ✅ **Zero configuration** - just works if your SSH keys match GitHub public keys
+
+**Auto-Discovery Order:**
+1. `~/.safe/keys/*.key` - Native SAFE format keys (checked first)
+2. `~/.ssh/*` - All SSH private keys in `~/.ssh/` directory
+   - Ed25519 keys → converted to X25519
+   - P-256 ECDSA keys → used directly
+
+**Example Auto-Discovery Output:**
+```bash
+$ curl -sL https://gist.github.com/.../raw | safe decrypt
+safe: using SSH key ~/.ssh/id_ed25519
+safe: trying 3 key(s) (2 native + 1 SSH)
+[decrypted message]
 ```
 
 **Key Requirements:**
 - **Agent B must have private keys** that correspond to the public keys on their GitHub profile
-- GitHub SSH keys (p-256, x25519) must be added to `https://github.com/{username}.keys`
-- Private keys stored securely in `~/.safe/keys/` or agent's key management system
+- GitHub SSH keys must be added to `https://github.com/{username}.keys`
+- Private keys can be in `~/.safe/keys/` (SAFE format) **OR** `~/.ssh/` (OpenSSH format)
 - Gist can be public (encrypted content is safe) or private for additional obscurity
 
 **Multi-Agent Broadcast:**
@@ -395,18 +416,24 @@ gh gist create broadcast.safe --desc "Team update" --public
 To enable decryption, agents need to set up their GitHub SSH keys and store private keys:
 
 ```bash
-# 1. Generate keys for agent
+# Option 1: Use existing SSH keys (simplest - zero setup!)
+# If you already have ~/.ssh/id_ed25519 or ~/.ssh/id_ecdsa uploaded to GitHub, you're done!
+# SAFE CLI auto-discovers SSH keys - no key generation needed
+
+# Option 2: Generate new SSH key and upload to GitHub
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -C "safe-agent-key"
+gh ssh-key add ~/.ssh/id_ed25519.pub --title "SAFE Agent Key"
+# Done! SAFE CLI will auto-discover this key
+
+# Option 3: Generate SAFE-native keys (for advanced use cases)
 safe keygen x25519 -o agent-id
-
-# 2. Add public key to GitHub account (via web UI or API)
-# Upload agent-id.x25519.pub to https://github.com/settings/keys
-
-# 3. Store private key securely
+# Upload agent-id.x25519.pub to https://github.com/settings/keys (manual conversion needed)
 mv agent-id.x25519.key ~/.safe/keys/
 
-# 4. Test encryption to self
+# Test encryption to self (works with any option above)
 safe encrypt -i test.txt -o test.safe -r github:your-username
-safe decrypt -i test.safe -o decrypted.txt -k ~/.safe/keys/agent-id.x25519.key
+safe decrypt -i test.safe -o decrypted.txt
+# With SSH keys, decryption auto-discovers your keys from ~/.ssh/
 ```
 
 **Browser-Based Agent Workflow:**
@@ -457,25 +484,27 @@ curl -sL https://github.com/agentb.keys > agentb-ssh-keys.txt
 You can "ping" another agent using their GitHub username without needing their public key in advance:
 
 ```bash
-# Agent A pings Agent B (discovers keys automatically via github:username)
+# Alice pings Bob (discovers keys automatically via github:username)
 echo "PING: Status update requested" > ping.txt
-safe encrypt -i ping.txt -o ping.safe -r github:agentb
-gh gist create ping.safe --desc "Ping from Agent A" --public
+safe encrypt -i ping.txt -o ping.safe -r github:bob
+gh gist create ping.safe --desc "Ping from Alice" --public
 
-# Agent B discovers the ping (can monitor their mentions or Gist notifications)
-# Download and decrypt the ping message
-curl -sL https://gist.github.com/agenta/{gist-id}/raw > ping.safe
-safe decrypt -i ping.safe -o ping.txt -k ~/.safe/keys/agentb.key
-cat ping.txt  # "PING: Status update requested"
+# Bob discovers the ping and decrypts (SSH key auto-discovery!)
+curl -sL https://gist.github.com/alice/{gist-id}/raw | safe decrypt
+# safe: using SSH key ~/.ssh/id_ed25519
+# safe: trying 1 key(s) (0 native + 1 SSH)
+# PING: Status update requested
 
-# Agent B responds back to Agent A
+# Bob responds back to Alice
 echo "PONG: Status OK, task 75% complete" > pong.txt
-safe encrypt -i pong.txt -o pong.safe -r github:agenta
-gh gist create pong.safe --desc "Response to Agent A" --public
+safe encrypt -i pong.txt -o pong.safe -r github:alice
+gh gist create pong.safe --desc "Response to Alice" --public
 ```
 
 **Key Benefits:**
 - ✅ No prior key exchange needed - `github:username` fetches public keys automatically
+- ✅ No key management needed - reuse existing SSH keys from GitHub
+- ✅ Works instantly if you already have SSH keys on GitHub
 - ✅ Works for any GitHub user with public SSH keys on their profile
 - ✅ Both agents can initiate communication
 - ✅ Asynchronous - sender doesn't need to wait for response
@@ -493,6 +522,23 @@ gh gist create pong.safe --desc "Response to Agent A" --public
 - Gist history is immutable - deleted messages remain in Git history
 - Use short-lived Gists and delete after confirmation for ephemeral communication
 - Multi-recipient encryption prevents sender from knowing who decrypted the message
+
+---
+
+### CLI vs Browser: Feature Comparison
+
+| Feature | CLI (SAFE v2.3+) | Browser (thesafe.dev) |
+|---------|------------------|------------------------|
+| `github:username` encryption | ✅ Yes | ❌ No - manual key fetch |
+| SSH key auto-discovery | ✅ Yes (`~/.ssh/`) | ❌ No |
+| Ed25519 SSH keys | ✅ Auto-converts to X25519 | ❌ No |
+| P-256 ECDSA SSH keys | ✅ Direct support | ❌ No |
+| SAFE native keys | ✅ Yes (`~/.safe/keys/`) | ✅ Yes (import/export) |
+| Zero-setup decryption | ✅ If SSH keys on GitHub | ❌ Must import keys |
+
+**Recommendation:** Use CLI for GitHub workflows. Browser best for interactive key generation and one-off encryption.
+
+---
 
 **Keychain management:**
 
@@ -612,6 +658,14 @@ safe keygen x25519                     # Generates keypair, auto-stores to ~/.sa
 safe keygen x25519 -n alice            # Named identity "alice"
 safe keys                              # List all identities and recipients
 ```
+
+**Key Discovery Order (SAFE CLI v2.3+):**
+1. `~/.safe/keys/*.key` - SAFE-native keys (checked first)
+2. `~/.ssh/*` - All SSH private keys in `~/.ssh/` directory
+   - Ed25519 keys → auto-converted to X25519
+   - P-256 ECDSA keys → used directly
+
+**Note:** You can use EITHER format - SSH keys from GitHub work with zero configuration!
 
 Directory structure (auto-created by `safe keygen`):
 - `~/.safe/keys/` — Private keys (0700, never share). E.g., `nick.x25519.key`
