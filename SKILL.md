@@ -125,8 +125,11 @@ The interface uses semantic ARIA roles throughout:
 | Encrypt button | "Encrypt plaintext with configured settings and recipient path" | button |
 | Encrypted output | "Encrypted SAFE message output" | textbox |
 | SAFE message input | "Paste encrypted SAFE message to decrypt" | textbox |
-| Add credential button | "Add credential to decryption attempt" | button |
+| Add credential button (decrypt) | "Add credential to decryption attempt" | button |
+| Add credential button (keychain) | "Add credential to keychain" | button |
+| Add all keychain button | "Add all keychain entries as credentials" | button |
 | Credential type selector | "Select credential type" | combobox |
+| New Passkey menu item | "Create a new passkey" | menuitem |
 | Password field (decrypt) | "Enter password for decryption" | textbox |
 | Confirm credential | "Confirm credential" | button |
 | Decrypt button | "Decrypt SAFE message using provided keychain" | button |
@@ -143,7 +146,9 @@ The interface uses semantic ARIA roles throughout:
 | Sections | `role="region"` with labels like "01 / Key Generation" | region |
 | Log output | "Activity log showing operations and their results" | log |
 
-**Note**: The Advanced sections (#unlock, #reencrypt, #tests, #log) are accessed via an "Advanced" navigation item that expands to show these additional features.
+**Note on Advanced navigation**: The Advanced sections (#unlock, #reencrypt, #tests, #log) are accessed via an "Advanced" navigation item that expands to show these additional features.
+
+**Note on terminology**: The UI currently uses mixed terminology - Section 04 is labeled "Keychain" and the decrypt button references "keychain", but the decrypt section's credential management buttons still use "Credentials" in some ARIA labels (e.g., "Add all keychain entries as credentials"). Both terms refer to the same saved keys/passwords.
 
 **Keychain shortcut buttons:**
 
@@ -278,16 +283,79 @@ with sync_playwright() as p:
     browser.close()
 ```
 
-**Credentials management:**
+**Multi-Recipient Encryption:**
 
-The Credentials section (04) supports:
-- **Add Key**: Import a public or private key (PEM or base64)
-- **Add Password**: Save a password for quick reuse
-- **Export**: Export all credentials as an encrypted SAFE backup (password-protected `.safe` file containing private keys in PEM format)
-- **Import**: Import a previously exported credential backup (file upload + passphrase)
-- **Clear All**: Delete all saved credentials (shows a confirm dialog)
+Both the browser UI and CLI support encrypting for multiple recipients. Each recipient can decrypt the message independently using their own credential.
 
-Generated keys are automatically saved here. Each key shows its type and Key ID hints, with Enc/Dec/PUB/PRIV/Del action buttons.
+**Browser workflow:**
+1. Configure first recipient in "Recipient 1" (password or public key)
+2. Click "+ Add Recipient" button
+3. Configure second recipient in "Recipient 2"
+4. Repeat for additional recipients (no limit)
+5. Click "Encrypt" - message is encrypted once but decryptable by any recipient
+
+**How it works:**
+- Each recipient gets their own UNLOCK block in the SAFE message
+- File is encrypted once with a symmetric key
+- Symmetric key is wrapped separately for each recipient
+- Any recipient can decrypt using their credential (password or private key)
+- Recipients cannot see who else has access
+
+**CLI multi-recipient examples:**
+```bash
+# Encrypt for multiple recipients using -r flag multiple times
+safe encrypt -i file.txt -o file.safe -r alice.pub -r bob.pub -r charlie.pub
+
+# Mix recipient types (password + keys)
+safe encrypt -i file.txt -o file.safe -p mypassword -r alice.pub -r bob.pub
+
+# Encrypt for GitHub users (fetches public keys from GitHub)
+safe encrypt -i file.txt -o file.safe -r github:grittygrease
+
+# Multiple GitHub users
+safe encrypt -i file.txt -o file.safe -r github:alice -r github:bob
+
+# Encrypt for GitHub users and a password
+safe encrypt -i file.txt -o file.safe -p teampassword -r github:alice -r github:bob
+```
+
+**GitHub username recipient (`github:username`):**
+- Fetches SSH public keys from `https://github.com/{username}.keys`
+- Automatically converts p-256 and x25519 keys to SAFE format
+- Both key types are added as separate recipients if available
+- Requires user to have public keys on their GitHub profile
+- Error if no keys found: `github:username: no keys found`
+
+**Example output:**
+```bash
+$ safe encrypt -i test.txt -o test.safe -r github:grittygrease
+# Creates UNLOCK blocks for both p-256 and x25519 keys from GitHub
+
+$ safe info -i test.safe
+LOCK Blocks: 2
+  [0] hpke(kem=p-256,id=QyLFP/...)
+  [1] hpke(kem=x25519,id=r1VeL...)
+```
+
+**Keychain management:**
+
+The Keychain section (04) supports:
+- **Add Credential** (dropdown menu with options):
+  - **Import Key**: Import an existing public or private key (PEM or base64)
+  - **New Passkey**: Create a new WebAuthn passkey (requires browser/OS authenticator, prompts for label)
+  - **New Password**: Add a new password for encryption/decryption
+  - **Existing Passkey**: Use an existing passkey from your authenticator
+- **Export**: Export keychain as encrypted SAFE backup (password-protected `.safe` file containing private keys in PEM format)
+- **Import**: Import a previously exported keychain backup (file upload + passphrase)
+- **Clear All**: Delete all keychain entries (shows a confirm dialog)
+
+**Passkey Limitations for Automation:**
+- Passkey creation requires WebAuthn hardware interaction (biometric, security key, etc.)
+- Cannot be fully automated - requires user interaction with authenticator
+- Dialog prompts for "Passkey label" before creation
+- Best suited for interactive sessions, not headless automation
+
+Generated keys are automatically saved here. Each key shows its type and Key ID hints, with Enc/Dec/Share/PUB/PRIV/Label/Del action buttons.
 
 **Export/Import workflow (for persisting keys across sessions):**
 
@@ -800,7 +868,7 @@ safe unlock add file.safe --identity admin.key -r bob.pub
 |-----------|------|----------|
 | AES-256-GCM | `--aead aes-256-gcm` | Default, hardware accelerated |
 | ChaCha20-Poly1305 | `--aead chacha20-poly1305` | ARM, older CPUs without AES-NI |
-| AEGIS-256 | `--aead aegis-256` | Key-committing, highest security |
+| AEGIS-256 | `--aead aegis-256` | **CLI only** - Key-committing, highest security. Not available in browser UI. |
 
 ### Key Types
 
