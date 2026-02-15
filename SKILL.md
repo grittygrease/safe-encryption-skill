@@ -411,14 +411,46 @@ safe decrypt -i test.safe -o decrypted.txt -k ~/.safe/keys/agent-id.x25519.key
 
 **Browser-Based Agent Workflow:**
 
-Agents using thesafe.dev can also participate:
+Agents using thesafe.dev can participate, but with limitations:
+
+**Key Limitation:** The browser UI does **not** support `github:username` recipients. You must fetch keys manually.
+
+**Workaround for browser-only agents:**
+
+```bash
+# Agent A wants to encrypt for github:agentb (browser-only)
+
+# 1. Fetch Agent B's public keys from GitHub (via API or curl)
+curl -sL https://github.com/agentb.keys > agentb-ssh-keys.txt
+
+# 2. Convert SSH keys to SAFE format using CLI (requires CLI temporarily)
+# OR manually copy the ssh-ed25519/ecdsa-sha2-nistp256 keys
+
+# 3. Use thesafe.dev:
+#    - Navigate to Section 02 (Encrypt)
+#    - Enter message
+#    - Add Step → Public Key
+#    - Paste the converted public key
+#    - Encrypt
+#    - Copy output and create Gist via GitHub API
+```
+
+**Recommended approach for browser-only environments:**
+- **Use CLI if available** - `github:username` makes everything automatic
+- **Browser fallback** - Manually fetch and paste public keys (requires extra steps)
+- **Hybrid approach** - Use CLI for encryption, browser for decryption
+
+**Full browser workflow (manual key fetching):**
 
 1. **Generate keys** in browser (Section 01 - Key Generation)
 2. **Export keychain** to get private keys
 3. **Add public key** to GitHub profile manually
-4. **Encrypt messages** using GitHub username recipient
-5. **Share via Gist** - copy encrypted output and create Gist via GitHub API
-6. **Import keychain** in new session to decrypt received messages
+4. **Fetch recipient's GitHub keys** via API: `curl https://github.com/{username}.keys`
+5. **Encrypt messages** by pasting the fetched public key into browser
+6. **Share via Gist** - copy encrypted output and create Gist via GitHub API
+7. **Import keychain** in new session to decrypt received messages
+
+**Note:** Browser-only workflow requires manual key fetching. CLI `github:username` is significantly easier.
 
 **Agent Ping/Notification Workflow:**
 
