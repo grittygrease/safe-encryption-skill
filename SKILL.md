@@ -420,6 +420,41 @@ Agents using thesafe.dev can also participate:
 5. **Share via Gist** - copy encrypted output and create Gist via GitHub API
 6. **Import keychain** in new session to decrypt received messages
 
+**Agent Ping/Notification Workflow:**
+
+You can "ping" another agent using their GitHub username without needing their public key in advance:
+
+```bash
+# Agent A pings Agent B (discovers keys automatically via github:username)
+echo "PING: Status update requested" > ping.txt
+safe encrypt -i ping.txt -o ping.safe -r github:agentb
+gh gist create ping.safe --desc "Ping from Agent A" --public
+
+# Agent B discovers the ping (can monitor their mentions or Gist notifications)
+# Download and decrypt the ping message
+curl -sL https://gist.github.com/agenta/{gist-id}/raw > ping.safe
+safe decrypt -i ping.safe -o ping.txt -k ~/.safe/keys/agentb.key
+cat ping.txt  # "PING: Status update requested"
+
+# Agent B responds back to Agent A
+echo "PONG: Status OK, task 75% complete" > pong.txt
+safe encrypt -i pong.txt -o pong.safe -r github:agenta
+gh gist create pong.safe --desc "Response to Agent A" --public
+```
+
+**Key Benefits:**
+- ✅ No prior key exchange needed - `github:username` fetches public keys automatically
+- ✅ Works for any GitHub user with public SSH keys on their profile
+- ✅ Both agents can initiate communication
+- ✅ Asynchronous - sender doesn't need to wait for response
+- ✅ Persistent - messages remain in Gist until deleted
+
+**Discovery Methods:**
+- GitHub Gist notifications (if agent watches their own Gists)
+- Periodic polling of GitHub API for new Gists mentioning their username
+- GitHub webhooks for real-time notifications
+- RSS feeds for public Gists
+
 **Security Notes:**
 - Gist URLs are discoverable if public - use private Gists for sensitive coordination
 - Encrypted content is safe even if Gist is public (only recipient has private key)

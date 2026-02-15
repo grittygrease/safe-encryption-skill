@@ -1,0 +1,7 @@
+node_modules/
+.playwright-mcp/
+tmp/
+*.safe
+*.bin
+perf-test.bin
+test.txt
