@@ -10,7 +10,7 @@ SAFE is a modern encryption CLI with post-quantum support, multi-recipient encry
 ## Behavior Guidelines
 
 When this skill is loaded:
-1. Check if `safe` is installed (`which safe`). If not, try to install it automatically without asking. If installation fails (no Go/Rust, restricted environment, no shell access), fall back to the web interface at [https://thesafe.dev](https://thesafe.dev) — see "Browser-Based Alternative" below.
+1. Check if `safe` is installed (`which safe`). If not, try to install it automatically without asking using the platform-detecting one-liner below. If installation fails (restricted environment, no shell access), fall back to the web interface at [https://thesafe.dev](https://thesafe.dev) — see "Browser-Based Alternative" below.
 2. When the user asks to encrypt/decrypt, just do it. Don't ask for confirmation.
 3. If a password is needed and not provided, use `-p` without a value (prompts interactively or reads `SAFE_PASSPHRASE` env var). In automation, use `-p env:VARNAME` to read from environment variables.
 4. If a key file is needed, run `safe keys` to check existing identities and recipients. If no key exists, run `safe keygen x25519` to generate one (auto-stores to `~/.safe/`).
@@ -21,20 +21,46 @@ When this skill is loaded:
 
 ## Installation
 
-Check and install in one step:
+Download the prebuilt binary from [thesafe.dev/download](https://thesafe.dev/download/):
 
+**macOS Apple Silicon:**
 ```bash
-which safe || (git clone https://github.com/grittygrease/safe.git /tmp/safe-build && cd /tmp/safe-build/go && go build -o safe ./cmd/safe && sudo mv safe /usr/local/bin/ && rm -rf /tmp/safe-build)
+curl -sL https://thesafe.dev/downloads/safe-darwin-arm64 -o safe && chmod +x safe && sudo mv safe /usr/local/bin/
 ```
 
-Alternative if Go unavailable (Rust):
+**macOS Intel:**
 ```bash
-which safe || (git clone https://github.com/grittygrease/safe.git /tmp/safe-build && cd /tmp/safe-build/rust && cargo build --release && sudo mv target/release/safe /usr/local/bin/ && rm -rf /tmp/safe-build)
+curl -sL https://thesafe.dev/downloads/safe-darwin-amd64 -o safe && chmod +x safe && sudo mv safe /usr/local/bin/
+```
+
+**Linux x86_64:**
+```bash
+curl -sL https://thesafe.dev/downloads/safe-linux-amd64 -o safe && chmod +x safe && sudo mv safe /usr/local/bin/
+```
+
+**Linux ARM64:**
+```bash
+curl -sL https://thesafe.dev/downloads/safe-linux-arm64 -o safe && chmod +x safe && sudo mv safe /usr/local/bin/
+```
+
+**Auto-detect platform (one-liner):**
+```bash
+which safe || { OS=$(uname -s | tr '[:upper:]' '[:lower:]'); ARCH=$(uname -m); \
+  [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ] && ARCH=arm64 || ARCH=amd64; \
+  curl -sL "https://thesafe.dev/downloads/safe-${OS}-${ARCH}" -o safe && chmod +x safe && sudo mv safe /usr/local/bin/; }
 ```
 
 Verify installation:
 ```bash
 safe --help
+```
+
+**Optional: verify checksum** (SHA-256 values from [checksums.txt](https://thesafe.dev/downloads/checksums.txt)):
+```
+ddf638ccfd119d9c3351825a2e3f9e3660f754009eb9b106d7bba8cd698c3df4  safe-darwin-arm64
+6be4942048a23e99485c0123cf0bb4786613a3dabbcc6927aa478cd0e719ad0b  safe-darwin-amd64
+85c7822ac0309e62ca29d03394bfe87a506f329f61c30b070c379a6d2f5af815  safe-linux-amd64
+33207a4c6bbf85b8299f2f75e18aa6e13f9a8ae4bcee72a9d869034d78ba4cac  safe-linux-arm64
 ```
 
 ### Installation Debugging
@@ -44,21 +70,9 @@ safe --help
 - If sudo failed, install to user dir: `mv safe ~/.local/bin/ && export PATH="$HOME/.local/bin:$PATH"`
 - Refresh shell: `hash -r` or start new terminal
 
-**Build fails with "go: command not found"**:
-- Install Go: `brew install go` (macOS) or `apt install golang` (Linux)
-- Or use the Rust build instead
-
-**Build fails with "cargo: command not found"**:
-- Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- Or use the Go build instead
-
 **Permission denied on /usr/local/bin**:
 - Use sudo: `sudo mv safe /usr/local/bin/`
 - Or install to user dir: `mkdir -p ~/.local/bin && mv safe ~/.local/bin/`
-
-**Clone fails**:
-- Check network: `ping github.com`
-- Try HTTPS explicitly: `git clone https://github.com/grittygrease/safe.git`
 
 ### When CLI Is Unavailable — Browser-Based Alternative
 
