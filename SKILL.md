@@ -79,25 +79,21 @@ If CLI installation fails or isn't possible (restricted environment, no build to
 
 This is a fully functional SAFE implementation running in the browser — not a demo. All cryptographic operations happen client-side. No data leaves the browser.
 
-The web interface supports all core SAFE operations:
-- **Key Generation** (Section 01 — `#keygen`): Generate X25519, P-256, or ML-KEM-768 keypairs
-- **Encryption** (Section 02 — `#encrypt`): Encrypt data with passwords, public keys, or composable paths
-- **Decryption** (Section 03 — `#decrypt`): Decrypt SAFE messages with passwords or private keys
-- **Credentials** (Section 04 — `#keyring`): Save, import, export, and manage keys and passwords
-- **Unlock Management** (Section 05 — `#unlock`): Add/remove recipients without re-encrypting payload
-- **Re-encryption Demo** (Section 06 — `#reencrypt`): Visualize dirty chunk tracking (only modified chunks re-encrypted)
-- **Tests** (Section 07 — `#tests`): Run encryption/decryption and random access tests
-- **Log** (Section 08 — `#log`): View operation log output
+The web interface supports all core SAFE operations via a single-page layout with these sections:
+- **ENCRYPT tab**: Encrypt data with passwords, public keys, passkeys, or GitHub usernames
+- **DECRYPT tab**: Decrypt SAFE messages with passwords, private keys, passkeys, or GitHub keys
+- **KEYCHAIN section**: Save, import, export, and manage keys and passwords
+- **ADVANCED section**: Lock Management (add/remove recipients), Re-encrypt Demo, Tests
+- **LOG section**: View operation log output
 
 **Manual workflow (no automation needed):**
 
 Users can interact with the web interface directly:
 
-1. **Generate Keys** (Section 01): Select KEM type (X25519/P-256/ML-KEM-768), click "Generate"
-2. **Encrypt** (Section 02): Enter plaintext or use a file, add recipient steps (public key or password), click "Encrypt". Copy or download the output.
-3. **Decrypt** (Section 03): Paste or upload a SAFE message, add credentials (private key or password), click "Decrypt". Copy or download the plaintext.
+1. **Encrypt**: Enter plaintext, add recipients (key, password, passkey, or GitHub username), click "ENCRYPT". Copy or download the output.
+2. **Decrypt**: Paste/upload/URL-load a SAFE message, add credentials (private key, password, passkey, or GitHub), click "DECRYPT". Copy or download the plaintext.
 
-Generated keys are automatically saved in the Credentials section (04) and can be reused across operations.
+Generated keys are automatically saved in the KEYCHAIN section and can be reused across operations.
 
 **Agent with MCP browser tools (Playwright, Puppeteer, etc.):**
 
@@ -438,46 +434,32 @@ safe decrypt -i test.safe -o decrypted.txt
 
 **Browser-Based Agent Workflow:**
 
-Agents using thesafe.dev can participate, but with limitations:
+Agents using thesafe.dev have full GitHub support for both encryption and decryption.
 
-**Key Limitation:** The browser UI does **not** support `github:username` recipients. You must fetch keys manually.
+**Encrypt to a GitHub user (browser):**
 
-**Workaround for browser-only agents:**
+1. Go to the **ENCRYPT** tab
+2. Enter your message
+3. Click **ADD FACTOR** → **NEW FACTOR** → select **GITHUB**
+4. Enter the GitHub username (e.g., `smithclay`)
+5. Click **FETCH KEYS** — the browser fetches public keys from `https://github.com/{username}.keys`
+6. Click **ENCRYPT**
+7. Copy the output and share via Gist
 
-```bash
-# Agent A wants to encrypt for github:agentb (browser-only)
+**Decrypt a GitHub-encrypted message (browser):**
 
-# 1. Fetch Agent B's public keys from GitHub (via API or curl)
-curl -sL https://github.com/agentb.keys > agentb-ssh-keys.txt
+1. Go to the **DECRYPT** tab
+2. Load the encrypted message: paste text, use the **FILE** button to upload, or use the **URL** button to load directly from a Gist URL (e.g., paste the raw Gist URL)
+3. Click **ADD** → **GITHUB** → enter your GitHub username → click **FETCH KEYS**
+   (This matches your public keys to the message's LOCK blocks)
+4. Click **ADD** → **KEY** → paste your SSH private key (from `~/.ssh/id_ed25519` or `~/.ssh/id_ecdsa`)
+   — or use the **"Import SSH private key from GitHub"** button if available
+5. Click **DECRYPT**
 
-# 2. Convert SSH keys to SAFE format using CLI (requires CLI temporarily)
-# OR manually copy the ssh-ed25519/ecdsa-sha2-nistp256 keys
-
-# 3. Use thesafe.dev:
-#    - Navigate to Section 02 (Encrypt)
-#    - Enter message
-#    - Add Step → Public Key
-#    - Paste the converted public key
-#    - Encrypt
-#    - Copy output and create Gist via GitHub API
-```
-
-**Recommended approach for browser-only environments:**
-- **Use CLI if available** - `github:username` makes everything automatic
-- **Browser fallback** - Manually fetch and paste public keys (requires extra steps)
-- **Hybrid approach** - Use CLI for encryption, browser for decryption
-
-**Full browser workflow (manual key fetching):**
-
-1. **Generate keys** in browser (Section 01 - Key Generation)
-2. **Export keychain** to get private keys
-3. **Add public key** to GitHub profile manually
-4. **Fetch recipient's GitHub keys** via API: `curl https://github.com/{username}.keys`
-5. **Encrypt messages** by pasting the fetched public key into browser
-6. **Share via Gist** - copy encrypted output and create Gist via GitHub API
-7. **Import keychain** in new session to decrypt received messages
-
-**Note:** Browser-only workflow requires manual key fetching. CLI `github:username` is significantly easier.
+**Recommended approach for browser-based workflows:**
+- **Both CLI and browser support `github:username`** for encryption equally well
+- **CLI is simpler for decryption** — it auto-discovers SSH keys from `~/.ssh/`; browser requires pasting the private key once
+- **URL button is convenient** — load encrypted Gist content directly without curl
 
 **Agent Ping/Notification Workflow:**
 
@@ -529,14 +511,19 @@ gh gist create pong.safe --desc "Response to Alice" --public
 
 | Feature | CLI (SAFE v2.3+) | Browser (thesafe.dev) |
 |---------|------------------|------------------------|
-| `github:username` encryption | ✅ Yes | ❌ No - manual key fetch |
-| SSH key auto-discovery | ✅ Yes (`~/.ssh/`) | ❌ No |
-| Ed25519 SSH keys | ✅ Auto-converts to X25519 | ❌ No |
-| P-256 ECDSA SSH keys | ✅ Direct support | ❌ No |
+| `github:username` encryption | ✅ Yes | ✅ Yes |
+| `github:username` decryption | ✅ Auto (SSH key auto-discovery) | ✅ Yes (paste SSH key once) |
+| SSH key auto-discovery | ✅ Yes (`~/.ssh/`) | ❌ No (manual paste) |
+| Ed25519 SSH keys | ✅ Auto-converts to X25519 | ✅ Manual paste |
+| P-256 ECDSA SSH keys | ✅ Direct support | ✅ Manual paste |
 | SAFE native keys | ✅ Yes (`~/.safe/keys/`) | ✅ Yes (import/export) |
-| Zero-setup decryption | ✅ If SSH keys on GitHub | ❌ Must import keys |
+| Load from URL (e.g. Gist) | ✅ `curl <url> \| safe decrypt` | ✅ URL button in DECRYPT tab |
+| Zero-setup decryption | ✅ If SSH keys on GitHub | ⚠️ Must paste private key once |
 
-**Recommendation:** Use CLI for GitHub workflows. Browser best for interactive key generation and one-off encryption.
+**Recommendation:**
+- **Encryption:** Both CLI and browser support `github:username` equally well
+- **Decryption:** CLI is easier (auto-discovers SSH keys); browser requires pasting your private key
+- **Best of both:** Use browser for encryption, CLI for decryption when available
 
 ---
 
