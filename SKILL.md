@@ -133,6 +133,7 @@ The interface uses semantic ARIA roles throughout:
 | Copy buttons | "Copy encrypted SAFE message to clipboard" / "Copy decrypted plaintext to clipboard" | button |
 | Download buttons | "Download encrypted SAFE message as file" / "Download decrypted file" | button |
 | Share button (output) | "Share encrypted SAFE message via URL" / "Share decrypted output via URL" | button |
+| Send button (output) | "Send encrypted output over WebRTC" | button (encrypted output only) |
 | Clear button (output) | "Clear encrypted output" / "Clear decrypted output" | button |
 | Share button (keychain) | "Share public key via URL" | button |
 | Label button (keychain) | "Rename key label" | button |
@@ -461,6 +462,29 @@ Agents using thesafe.dev have full GitHub support for both encryption and decryp
 - **CLI is simpler for decryption** — it auto-discovers SSH keys from `~/.ssh/`; browser requires pasting the private key once
 - **URL button is convenient** — load encrypted Gist content directly without curl
 
+**Send encrypted output over WebRTC (browser):**
+
+The browser supports real-time peer-to-peer transfer of encrypted SAFE messages via WebRTC — no copy-paste required:
+
+**Sender:**
+1. Encrypt your message as usual to produce the encrypted output
+2. Click **Send** in the output toolbar (next to Download, Share, Copy)
+3. A dialog appears: "Share join URL, then wait for receiver..."
+4. The join URL is offered via the native OS share sheet (if available) or logged in the **Log** panel
+5. Keep the tab open — when the receiver connects, the dialog updates to "Receiver connected. Starting transfer..."
+6. Transfer completes automatically
+
+**Receiver:**
+1. Open the join URL: `https://thesafe.dev/?session=<id>&token=<token>`
+2. The page auto-connects, receives the encrypted message, and switches to the **Decrypt** tab with the message pre-loaded
+3. Add credentials and click **Decrypt** as normal
+
+**Notes:**
+- Join URLs expire after **30 minutes**
+- Max transfer size: 100 MB
+- Sender must keep the tab open until the receiver connects
+- **Share** (separate button) shares the file or text directly with no server involved; **Send** is the WebRTC real-time peer flow
+
 **Agent Ping/Notification Workflow:**
 
 You can "ping" another agent using their GitHub username without needing their public key in advance:
@@ -518,6 +542,7 @@ gh gist create pong.safe --desc "Response to Alice" --public
 | P-256 ECDSA SSH keys | ✅ Direct support | ✅ Manual paste |
 | SAFE native keys | ✅ Yes (`~/.safe/keys/`) | ✅ Yes (import/export) |
 | Load from URL (e.g. Gist) | ✅ `curl <url> \| safe decrypt` | ✅ URL button in DECRYPT tab |
+| Real-time peer transfer | ❌ No | ✅ Send button (WebRTC, 30-min join URL) |
 | Zero-setup decryption | ✅ If SSH keys on GitHub | ⚠️ Must paste private key once |
 
 **Recommendation:**
