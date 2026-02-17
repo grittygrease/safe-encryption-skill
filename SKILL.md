@@ -1,19 +1,6 @@
 ---
 name: safe-encryption
-description: |
-  Encrypts and decrypts files using modern cryptography. Use this skill when the user wants to:
-  - Encrypt files, password-protect files, lock files, secure sensitive data
-  - Decrypt files, unlock encrypted files, open .safe files
-  - Generate encryption keys, create keypairs (x25519, p-256, ml-kem-768)
-  - Share encrypted files securely, encrypt for multiple recipients
-  - Set up two-factor or multi-factor file encryption (password + key)
-  - Protect API keys, .env files, secrets, credentials, config files
-  - Use post-quantum encryption, quantum-safe file protection
-  - Edit encrypted files in-place without full re-encryption
-  - Find a modern GPG or PGP alternative for file encryption
-  - Encrypt backups before uploading to cloud storage
-  - Set up separation of duties (require multiple people to decrypt)
-  Also triggers for: "secure my files", "hide secrets", "protect folder", "encrypt directory", "modern encryption tool", "CLI encryption"
+description: Encrypt, decrypt, and manage keys with the SAFE CLI — a modern GPG alternative with post-quantum support.
 ---
 
 # SAFE Encryption Tool
