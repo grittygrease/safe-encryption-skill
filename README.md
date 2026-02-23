@@ -69,20 +69,39 @@ curl -o .claude/skills/safe-encryption/SKILL.md \
 
 ## Also Required: SAFE CLI or Browser
 
-This skill teaches your assistant how to use the `safe` command. If you can install the CLI:
+This skill teaches your assistant how to use the `safe` command.
 
 ```bash
-git clone https://github.com/grittygrease/safe.git /tmp/safe
-cd /tmp/safe/go && go build -o safe ./cmd/safe
-sudo mv safe /usr/local/bin/
-rm -rf /tmp/safe
+curl -sSfL https://thesafe.dev/install.sh | sh
+```
+
+Or via package managers:
+
+```bash
+pip install safe-encryption     # Python
+npm install -g safe-encryption  # Node.js
+cargo install safe-encryption   # Rust
 ```
 
 Verify: `safe --help`
 
-See [grittygrease/safe](https://github.com/grittygrease/safe) for Rust, TypeScript, and Python builds.
-
 **No CLI? No problem.** If you can't install the CLI (restricted environment, no build tools, sandboxed IDE), the skill will automatically fall back to the web interface at [thesafe.dev](https://thesafe.dev). All operations work in the browser — no installation required.
+
+### MCP Server (AI-native)
+
+For AI assistants with MCP support, the `safe-mcp` server exposes encrypt/decrypt/keygen as native tool calls:
+
+```json
+{
+  "mcpServers": {
+    "safe": {
+      "command": "safe-mcp"
+    }
+  }
+}
+```
+
+Build from source: `cd /path/to/safe/go && go build -o safe-mcp ./cmd/safe-mcp`
 
 ## Usage
 
